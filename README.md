@@ -1,6 +1,6 @@
-# Amsterdam Weather
+# MyMeteo
 
-A small personal weather dashboard for Amsterdam.
+A small personal weather dashboard with location search, current-location support, live weather, and moving rain radar. Current-location mode uses the browser geolocation permission prompt.
 
 ## Open
 
@@ -14,6 +14,9 @@ Then visit `http://127.0.0.1:4173/`.
 
 ## Data
 
-- Forecast and 15-minute rain outlook: Open-Meteo Forecast API
-- Live radar tiles: RainViewer Weather Maps API
+- Forecast: Open-Meteo Forecast API
+- Location autocomplete: Open-Meteo Geocoding API
+- Smooth Netherlands radar animation: Buienradar public image animation, requested with 36 forecast steps
+- Safari-compatible radar frame decoding: gifuct-js through esm.sh
+- Fallback live and nowcast radar tiles: LibreWXR
 - Map: OpenStreetMap tiles through Leaflet

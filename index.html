@@ -5,8 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>MyMeteo Amsterdam</title>
     <link rel="preconnect" href="https://api.open-meteo.com" />
-    <link rel="preconnect" href="https://api.rainviewer.com" />
-    <link rel="preconnect" href="https://tilecache.rainviewer.com" />
+    <link rel="preconnect" href="https://api.librewxr.net" />
+    <link rel="preconnect" href="https://image.buienradar.nl" />
+    <link rel="preconnect" href="https://image-cdn.buienradar.nl" />
     <link
       rel="stylesheet"
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -18,9 +19,32 @@
   <body>
     <main class="weather-app" aria-live="polite">
       <header class="topbar">
-        <div>
+        <div class="location-block">
           <p class="eyebrow">MyMeteo</p>
-          <h1>Amsterdam</h1>
+          <form class="location-form" id="locationForm" autocomplete="off">
+            <label class="visually-hidden" for="locationInput">Search location</label>
+            <input
+              class="location-input"
+              id="locationInput"
+              type="search"
+              value="Amsterdam"
+              placeholder="Search location"
+              enterkeyhint="search"
+              spellcheck="false"
+              aria-controls="locationOptions"
+              aria-expanded="false"
+            />
+            <ul class="location-options" id="locationOptions" role="listbox" hidden></ul>
+            <button
+              class="location-button"
+              id="locateButton"
+              type="button"
+              aria-label="Use current location"
+              title="Use current location"
+            >
+              <i data-lucide="crosshair" aria-hidden="true"></i>
+            </button>
+          </form>
           <p class="updated" id="updatedAt">Loading forecast...</p>
         </div>
         <button
@@ -79,7 +103,7 @@
         </label>
       </section>
 
-      <footer class="app-footer">Created by marc.smeehuijzen@easytech.nl with ChatGPT 5.5, May 2026</footer>
+      <footer class="app-footer">Created by marc.smeehuijzen@easytech.nl, May 2026</footer>
     </main>
 
     <script
