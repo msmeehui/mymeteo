@@ -33,14 +33,17 @@ const elements = {
   conditionLabel: document.querySelector("#conditionLabel"),
   conditionIcon: document.querySelector("#conditionIcon"),
   maxTemp: document.querySelector("#maxTemp"),
+  minTemp: document.querySelector("#minTemp"),
   windText: document.querySelector("#windText"),
   windArrow: document.querySelector("#windArrow"),
-  rainAmount: document.querySelector("#rainAmount"),
+  infoButton: document.querySelector("#infoButton"),
+  infoDialog: document.querySelector("#infoDialog"),
   radarPanel: document.querySelector(".radar-panel"),
   radarMap: document.querySelector("#radarMap"),
   radarTime: document.querySelector("#radarTime"),
   radarSlider: document.querySelector("#radarSlider"),
   rainForecastBadge: document.querySelector("#rainForecastBadge"),
+  sliderTimestamps: document.querySelector("#sliderTimestamps"),
 };
 
 const weatherCodes = {
@@ -74,7 +77,7 @@ const weatherCodes = {
   99: { label: "Storm with hail", icon: "cloud-lightning", tone: "#ded9ed", ink: "#4e416f" },
 };
 
-const compassPoints = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+const compassPoints = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 
 let map;
 let radarLayer;
@@ -93,6 +96,7 @@ let radarFrames = [];
 let locationSearchResults = [];
 let locationSearchTimer;
 let locationSearchAbortController;
+let sliderTimestampTimer;
 let selectedLocation = loadStoredLocation() || DEFAULT_LOCATION;
 let refreshTimer;
 
@@ -116,6 +120,7 @@ function bindEvents() {
   elements.locationInput.addEventListener("input", handleLocationInput);
   elements.locationInput.addEventListener("change", selectMatchingLocation);
   elements.locationInput.addEventListener("focus", () => {
+    selectLocationInputText();
     if (locationSearchResults.length) {
       renderLocationOptions();
     }
@@ -135,20 +140,47 @@ function bindEvents() {
   });
   elements.locateButton.addEventListener("click", useCurrentLocation);
   elements.refreshButton.addEventListener("click", loadAll);
+  if (elements.infoButton && elements.infoDialog) {
+    elements.infoButton.addEventListener("click", openInfoDialog);
+    elements.infoDialog.addEventListener("click", (event) => {
+      if (event.target === elements.infoDialog) {
+        elements.infoDialog.close();
+      }
+    });
+  }
   elements.radarSlider.addEventListener("input", (event) => {
     handleRadarSliderInput(Number(event.target.value));
+  });
+  window.addEventListener("resize", () => {
+    scheduleSliderTimestampsUpdate();
+    resizeLocationInput(elements.locationInput.value);
   });
 }
 
 function renderLocation() {
   elements.locationInput.value = selectedLocation.name;
   elements.locationInput.title = selectedLocation.label || selectedLocation.name;
+  resizeLocationInput(selectedLocation.name);
   document.title = `MyMeteo ${selectedLocation.name}`;
+}
+
+function openInfoDialog() {
+  if (!elements.infoDialog) {
+    return;
+  }
+
+  if (typeof elements.infoDialog.showModal === "function") {
+    elements.infoDialog.showModal();
+    return;
+  }
+
+  elements.infoDialog.setAttribute("open", "");
 }
 
 function handleLocationInput() {
   const query = elements.locationInput.value.trim();
   window.clearTimeout(locationSearchTimer);
+  resizeLocationInput(elements.locationInput.value);
 
   if (query.length < 2) {
     locationSearchResults = [];
@@ -159,6 +191,41 @@ function handleLocationInput() {
   locationSearchTimer = window.setTimeout(() => {
     searchLocationSuggestions(query);
   }, 220);
+}
+
+function resizeLocationInput(value) {
+  const hasValue = Boolean(value);
+  const text = hasValue ? value : elements.locationInput.placeholder;
+  const canvas = resizeLocationInput.canvas || document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  const style = window.getComputedStyle(elements.locationInput);
+  const formStyle = window.getComputedStyle(elements.locationForm);
+  const buttonWidth = elements.locateButton.offsetWidth || 34;
+  const formGap = Number.parseFloat(formStyle.columnGap || formStyle.gap) || 6;
+  const locationBlockWidth = elements.locationForm.parentElement.getBoundingClientRect().width;
+  const availableWidth = Math.max(44, locationBlockWidth - buttonWidth - formGap);
+  resizeLocationInput.canvas = canvas;
+
+  context.font = [
+    style.fontStyle,
+    style.fontVariant,
+    style.fontWeight,
+    style.fontSize,
+    style.fontFamily,
+  ].join(" ");
+
+  const measuredWidth = context.measureText(text).width + 10;
+  const placeholderWidth = context.measureText(elements.locationInput.placeholder).width + 12;
+  const minWidth = hasValue ? 42 : placeholderWidth;
+  const maxWidth = Math.min(420, availableWidth);
+  const width = Math.min(Math.max(measuredWidth, minWidth), maxWidth);
+  elements.locationForm.style.setProperty("--location-input-width", `${Math.ceil(width)}px`);
+}
+
+function selectLocationInputText() {
+  window.requestAnimationFrame(() => {
+    elements.locationInput.select();
+  });
 }
 
 function selectMatchingLocation() {
@@ -360,12 +427,11 @@ async function loadWeather() {
       "wind_direction_10m",
       "wind_gusts_10m",
     ].join(","),
-    daily: ["temperature_2m_max", "precipitation_sum"].join(","),
+    daily: ["temperature_2m_max", "temperature_2m_min"].join(","),
     forecast_days: "1",
     timezone: selectedLocation.timezone,
     timeformat: "unixtime",
     wind_speed_unit: "kmh",
-    precipitation_unit: "mm",
   });
 
   try {
@@ -395,12 +461,12 @@ function renderWeather(data) {
   elements.currentTemp.textContent = formatTemperature(current.temperature_2m);
   elements.conditionLabel.textContent = condition.label;
   renderConditionIcon(condition.icon);
-  elements.maxTemp.textContent = formatTemperature(daily.temperature_2m_max[0]);
+  elements.maxTemp.textContent = formatOptionalTemperature(daily.temperature_2m_max?.[0]);
+  elements.minTemp.textContent = formatOptionalTemperature(daily.temperature_2m_min?.[0]);
   elements.windText.textContent = `${degreesToCompass(windDirection)} Bft ${beaufort}`;
   elements.windText.title = `${windSpeed} km/h, blowing toward ${degreesToCompass(downwindDirection)}`;
   elements.windArrow.style.transform = `rotate(${downwindDirection}deg)`;
   elements.windArrow.title = `Blowing toward ${degreesToCompass(downwindDirection)}`;
-  elements.rainAmount.textContent = `${formatNumber(daily.precipitation_sum[0], 0)} mm`;
   elements.updatedAt.textContent = `Checked ${formatClock(new Date())}`;
   elements.updatedAt.title = `Weather observation ${formatTime(current.time)}`;
   elements.updatedAt.classList.remove("error");
@@ -530,6 +596,7 @@ async function loadBuienradarRadar() {
   elements.radarSlider.max = String(Math.max((buienradarTimeline.frameCount - 1) * 100, 0));
   elements.radarSlider.step = "1";
   setBuienradarFramePosition(0);
+  updateSliderTimestamps();
   refreshMapSize();
 }
 
@@ -565,6 +632,7 @@ async function loadLibreWxrRadar() {
   elements.radarSlider.step = "1";
   elements.radarSlider.value = String(nextValue);
   setLibreWxrRadarPosition(nextValue);
+  updateSliderTimestamps();
   refreshMapSize();
 }
 
@@ -584,6 +652,7 @@ function disableRadar(message) {
   elements.radarTime.textContent = message;
   elements.rainForecastBadge.textContent = message;
   elements.radarSlider.removeAttribute("aria-valuetext");
+  updateSliderTimestamps();
   elements.radarTime.classList.add("error");
 }
 
@@ -665,6 +734,118 @@ function setBuienradarFramePosition(value) {
   elements.radarSlider.value = String(Math.round(framePosition * 100));
   elements.radarSlider.setAttribute("aria-valuetext", label);
   elements.radarTime.classList.remove("error");
+}
+
+function getRadarTimeRange() {
+  const maxValue = Number(elements.radarSlider.max) || 0;
+  const buienradarStart = getBuienradarDateForSlider(0, true);
+  const buienradarEnd = getBuienradarDateForSlider(maxValue, true);
+  if (buienradarStart && buienradarEnd) {
+    return { start: buienradarStart, end: buienradarEnd };
+  }
+
+  const libreStart = getLibreWxrDateForSlider(0);
+  const libreEnd = getLibreWxrDateForSlider(maxValue);
+  return libreStart && libreEnd ? { start: libreStart, end: libreEnd } : undefined;
+}
+
+function getBuienradarDateForSlider(value, snapToFrame = false) {
+  if (!buienradarFrameUrls.length || !buienradarStartDate) {
+    return undefined;
+  }
+
+  const maxFramePosition = Math.max(buienradarFrameUrls.length - 1, 0);
+  const framePosition = Math.min(Math.max(value / 100, 0), maxFramePosition);
+  const displayPosition = snapToFrame ? Math.round(framePosition) : framePosition;
+  return new Date(buienradarStartDate.getTime() + displayPosition * buienradarFrameMinutes * 60 * 1000);
+}
+
+function getLibreWxrDateForSlider(value) {
+  if (!radarFrames.length) {
+    return undefined;
+  }
+
+  const framePosition = Math.min(Math.max(value / 100, 0), radarFrames.length - 1);
+  const lowerIndex = Math.floor(framePosition);
+  const upperIndex = Math.min(lowerIndex + 1, radarFrames.length - 1);
+  const progress = framePosition - lowerIndex;
+  const lowerFrame = radarFrames[lowerIndex];
+  const upperFrame = radarFrames[upperIndex];
+  return new Date(interpolateUnixTime(lowerFrame.time, upperFrame.time, progress) * 1000);
+}
+
+function scheduleSliderTimestampsUpdate() {
+  window.clearTimeout(sliderTimestampTimer);
+  sliderTimestampTimer = window.setTimeout(updateSliderTimestamps, 100);
+}
+
+function updateSliderTimestamps() {
+  const range = getRadarTimeRange();
+  if (!range || elements.radarSlider.disabled || range.end <= range.start) {
+    elements.sliderTimestamps.hidden = true;
+    elements.sliderTimestamps.replaceChildren();
+    return;
+  }
+
+  const trackWidth = elements.radarSlider.getBoundingClientRect().width;
+  const maxLabels = Math.max(2, Math.min(13, Math.floor(trackWidth / 58)));
+  const dates = getSliderTimestampDates(range.start, range.end, maxLabels);
+  const track = document.createElement("div");
+  track.className = "slider-timestamps-track";
+
+  dates.forEach((date) => {
+    track.appendChild(createSliderTimestamp(date, range.start, range.end));
+  });
+
+  elements.sliderTimestamps.hidden = false;
+  elements.sliderTimestamps.replaceChildren(track);
+}
+
+function getSliderTimestampDates(start, end, maxLabels) {
+  const intervals = [15, 30, 60, 120];
+
+  for (const interval of intervals) {
+    const dates = buildAlignedSliderTimestampDates(start, end, interval);
+    if (dates.length >= 2 && dates.length <= maxLabels) {
+      return dates;
+    }
+  }
+
+  return buildAlignedSliderTimestampDates(start, end, intervals[intervals.length - 1]);
+}
+
+function buildAlignedSliderTimestampDates(start, end, intervalMinutes) {
+  const intervalMs = intervalMinutes * 60 * 1000;
+  const dates = [];
+  let cursor = ceilDateToMinuteInterval(start, intervalMinutes);
+
+  while (cursor <= end) {
+    dates.push(cursor);
+    cursor = new Date(cursor.getTime() + intervalMs);
+  }
+
+  return dates;
+}
+
+function createSliderTimestamp(date, start, end) {
+  const timestamp = document.createElement("span");
+  const position = ((date - start) / (end - start)) * 100;
+  timestamp.className = "slider-timestamp";
+  timestamp.style.left = `${position}%`;
+  timestamp.textContent = formatClock(date);
+
+  if (position < 0.5) {
+    timestamp.classList.add("is-start");
+  } else if (position > 99.5) {
+    timestamp.classList.add("is-end");
+  }
+
+  return timestamp;
+}
+
+function ceilDateToMinuteInterval(date, intervalMinutes) {
+  const intervalMs = intervalMinutes * 60 * 1000;
+  return new Date(Math.ceil(date.getTime() / intervalMs) * intervalMs);
 }
 
 function setLibreWxrTileLayer(layer, currentKey, frame, opacity, zIndex) {
@@ -975,10 +1156,8 @@ function formatTemperature(value) {
   return `${Math.round(value)}°`;
 }
 
-function formatNumber(value, maximumFractionDigits = 0) {
-  return new Intl.NumberFormat("en-GB", {
-    maximumFractionDigits,
-  }).format(value);
+function formatOptionalTemperature(value) {
+  return Number.isFinite(value) ? formatTemperature(value) : "--°";
 }
 
 function formatTime(value) {
@@ -1008,7 +1187,7 @@ function formatUnixTime(value) {
 }
 
 function degreesToCompass(degrees) {
-  const index = Math.round(degrees / 22.5) % compassPoints.length;
+  const index = Math.round(degrees / 45) % compassPoints.length;
   return compassPoints[index];
 }
 
