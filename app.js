@@ -34,6 +34,7 @@ const elements = {
   conditionIcon: document.querySelector("#conditionIcon"),
   maxTemp: document.querySelector("#maxTemp"),
   minTemp: document.querySelector("#minTemp"),
+  rainTotal: document.querySelector("#rainTotal"),
   windText: document.querySelector("#windText"),
   windArrow: document.querySelector("#windArrow"),
   infoButton: document.querySelector("#infoButton"),
@@ -427,7 +428,7 @@ async function loadWeather() {
       "wind_direction_10m",
       "wind_gusts_10m",
     ].join(","),
-    daily: ["temperature_2m_max", "temperature_2m_min"].join(","),
+    daily: ["temperature_2m_max", "temperature_2m_min", "precipitation_sum"].join(","),
     forecast_days: "1",
     timezone: selectedLocation.timezone,
     timeformat: "unixtime",
@@ -463,6 +464,7 @@ function renderWeather(data) {
   renderConditionIcon(condition.icon);
   elements.maxTemp.textContent = formatOptionalTemperature(daily.temperature_2m_max?.[0]);
   elements.minTemp.textContent = formatOptionalTemperature(daily.temperature_2m_min?.[0]);
+  elements.rainTotal.textContent = formatOptionalRain(daily.precipitation_sum?.[0]);
   elements.windText.textContent = `${degreesToCompass(windDirection)} Bft ${beaufort}`;
   elements.windText.title = `${windSpeed} km/h, blowing toward ${degreesToCompass(downwindDirection)}`;
   elements.windArrow.style.transform = `rotate(${downwindDirection}deg)`;
@@ -1158,6 +1160,10 @@ function formatTemperature(value) {
 
 function formatOptionalTemperature(value) {
   return Number.isFinite(value) ? formatTemperature(value) : "--°";
+}
+
+function formatOptionalRain(value) {
+  return Number.isFinite(value) ? `${Math.round(value)} mm` : "-- mm";
 }
 
 function formatTime(value) {

@@ -1,0 +1,21 @@
+{
+  "name": "MyMeteo",
+  "short_name": "MyMeteo",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "theme_color": "#4aa6c9",
+  "background_color": "#f4f0e7",
+  "display": "standalone"
+}

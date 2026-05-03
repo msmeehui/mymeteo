@@ -86,6 +86,9 @@ input {
 }
 
 .location-form {
+  --location-options-width: min(420px, calc(100vw - 28px));
+
+  position: relative;
   width: fit-content;
   max-width: 100%;
   display: grid;
@@ -118,10 +121,12 @@ input {
 }
 
 .location-options {
-  grid-column: 1 / -1;
-  grid-row: 2;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  width: var(--location-options-width);
   max-height: min(230px, 46svh);
-  margin: 2px 0 0;
+  margin: 0;
   padding: 5px;
   overflow: auto;
   border: 1px solid var(--line);
@@ -313,7 +318,7 @@ h1 {
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -454,7 +459,7 @@ h1 {
   position: absolute;
   top: 0;
   color: rgb(104 113 108 / 0.78);
-  font-size: 0.76rem;
+  font-size: 0.84rem;
   font-weight: 700;
   line-height: 1;
   white-space: nowrap;
@@ -539,7 +544,10 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .info-dialog {
-  width: min(calc(100vw - 32px), 420px);
+  width: calc(100vw - 32px);
+  max-width: 420px;
+  max-height: calc(100svh - 32px);
+  overflow: auto;
   padding: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -553,6 +561,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .info-dialog-content {
+  min-width: 0;
   padding: 18px;
   display: grid;
   gap: 12px;
@@ -569,10 +578,46 @@ input[type="range"]::-moz-range-thumb {
   font-size: 1.1rem;
 }
 
-.info-dialog p {
+.info-dialog p,
+.info-meta {
   color: var(--muted);
   font-size: 0.9rem;
   line-height: 1.45;
+}
+
+.info-meta {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+
+.info-meta dt {
+  margin-top: 12px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.info-meta dt:first-child {
+  margin-top: 0;
+}
+
+.info-meta dd {
+  margin: 0;
+}
+
+.info-photo {
+  min-width: 0;
+  max-width: 100%;
+  margin: 4px 0 0;
+  overflow: hidden;
+}
+
+.info-photo img {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
 }
 
 .dialog-close {
@@ -793,6 +838,7 @@ input[type="range"]::-moz-range-thumb {
   .location-form {
     width: fit-content;
     max-width: 100%;
+    --location-options-width: min(360px, calc(100vw - 24px));
     grid-template-columns: minmax(0, var(--location-input-width, 14ch)) 32px;
   }
 
@@ -851,6 +897,11 @@ input[type="range"]::-moz-range-thumb {
   }
 
   .metrics {
+    grid-template-columns:
+      minmax(34px, 0.72fr)
+      minmax(34px, 0.72fr)
+      minmax(46px, 0.86fr)
+      minmax(88px, 1.58fr);
     gap: 6px;
   }
 
@@ -938,7 +989,7 @@ input[type="range"]::-moz-range-thumb {
   }
 
   .slider-timestamp {
-    font-size: 0.74rem;
+    font-size: 0.82rem;
   }
 
   .slider-label {

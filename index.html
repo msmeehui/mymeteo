@@ -4,6 +4,11 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>MyMeteo Amsterdam</title>
+    <meta name="theme-color" content="#4aa6c9" />
+    <meta name="apple-mobile-web-app-title" content="MyMeteo" />
+    <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
+    <link rel="manifest" href="site.webmanifest" />
     <link rel="preconnect" href="https://api.open-meteo.com" />
     <link rel="preconnect" href="https://api.librewxr.net" />
     <link rel="preconnect" href="https://image.buienradar.nl" />
@@ -14,7 +19,7 @@
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin=""
     />
-    <link rel="stylesheet" href="styles.css?v=20260502-6" />
+    <link rel="stylesheet" href="styles.css?v=20260503-2" />
   </head>
   <body>
     <main class="weather-app" aria-live="polite">
@@ -81,6 +86,10 @@
             <dd id="minTemp">--°</dd>
           </div>
           <div>
+            <dt>Rain</dt>
+            <dd id="rainTotal">-- mm</dd>
+          </div>
+          <div>
             <dt>Wind</dt>
             <dd class="wind-value">
               <span class="wind-arrow" id="windArrow" aria-hidden="true"></span>
@@ -126,7 +135,24 @@
             </button>
           </form>
         </div>
-        <p>Created by marc.smeehuijzen@easytech.nl with ChatGPT 5.5, May 2026.</p>
+        <dl class="info-meta">
+          <dt>Creator:</dt>
+          <dd>marc.smeehuijzen@easytech.nl with ChatGPT 5.5</dd>
+          <dt>Last update:</dt>
+          <dd>May 3, 2026</dd>
+          <dt>Weather data:</dt>
+          <dd>Open-Meteo, Buienradar and LibreWXR</dd>
+          <dt>Map:</dt>
+          <dd>OpenStreetMap</dd>
+        </dl>
+        <figure class="info-photo">
+          <img
+            src="marc-rain.jpeg"
+            width="1360"
+            height="768"
+            alt="Person holding an umbrella in heavy rain"
+          />
+        </figure>
       </div>
     </dialog>
 
@@ -136,6 +162,6 @@
       crossorigin=""
     ></script>
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-    <script src="app.js?v=20260502-6"></script>
+    <script src="app.js?v=20260503-2"></script>
   </body>
 </html>
