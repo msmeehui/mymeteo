@@ -3,8 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MyMeteo Amsterdam</title>
+    <title>MyMeteo</title>
     <meta name="theme-color" content="#4aa6c9" />
+    <meta name="description" content="A simple weather forecast with rain radar and a 5-day outlook." />
+    <meta property="og:title" content="MyMeteo" />
+    <meta property="og:description" content="A simple weather forecast with rain radar and a 5-day outlook." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://onlinecaveman.com/rest/mymeteo2/icon-512.png" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="MyMeteo" />
+    <meta name="twitter:description" content="A simple weather forecast with rain radar and a 5-day outlook." />
     <meta name="apple-mobile-web-app-title" content="MyMeteo" />
     <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
     <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
@@ -19,13 +27,33 @@
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin=""
     />
-    <link rel="stylesheet" href="styles.css?v=20260503-2" />
+    <link rel="stylesheet" href="styles.css?v=20260503-7" />
   </head>
   <body>
     <main class="weather-app" aria-live="polite">
       <header class="topbar">
         <div class="location-block">
-          <p class="eyebrow">MyMeteo</p>
+          <div class="brand-row">
+            <p
+              class="eyebrow brand-title"
+              id="brandButton"
+              role="button"
+              tabindex="0"
+              aria-label="About MyMeteo"
+              title="About MyMeteo"
+            >
+              MyMeteo
+            </p>
+            <button
+              class="info-button"
+              id="infoButton"
+              type="button"
+              aria-label="About MyMeteo"
+              title="About MyMeteo"
+            >
+              <i data-lucide="info" aria-hidden="true"></i>
+            </button>
+          </div>
           <form class="location-form" id="locationForm" autocomplete="off">
             <label class="visually-hidden" for="locationInput">Search location</label>
             <input
@@ -79,11 +107,11 @@
         <dl class="metrics">
           <div>
             <dt>Max</dt>
-            <dd id="maxTemp">--°</dd>
+            <dd class="temp-max" id="maxTemp">--°</dd>
           </div>
           <div>
             <dt>Min</dt>
-            <dd id="minTemp">--°</dd>
+            <dd class="temp-min" id="minTemp">--°</dd>
           </div>
           <div>
             <dt>Rain</dt>
@@ -93,24 +121,38 @@
             <dt>Wind</dt>
             <dd class="wind-value">
               <span class="wind-arrow" id="windArrow" aria-hidden="true"></span>
-              <span id="windText">-- Bft</span>
+              <span id="windText">--</span>
             </dd>
           </div>
         </dl>
       </section>
 
-      <section class="radar-panel" aria-label="Rain">
+      <div class="weather-tabs" role="tablist" aria-label="Weather view">
+        <button
+          class="weather-tab is-active"
+          id="rainTab"
+          type="button"
+          role="tab"
+          aria-selected="true"
+          aria-controls="radarPanel"
+        >
+          Rain
+        </button>
+        <button
+          class="weather-tab"
+          id="forecastTab"
+          type="button"
+          role="tab"
+          aria-selected="false"
+          aria-controls="forecastPanel"
+        >
+          5 days
+        </button>
+      </div>
+
+      <section class="radar-panel" id="radarPanel" aria-label="Rain" role="tabpanel" aria-labelledby="rainTab">
         <div class="radar-head">
           <h2>Rain</h2>
-          <button
-            class="info-button"
-            id="infoButton"
-            type="button"
-            aria-label="About MyMeteo"
-            title="About MyMeteo"
-          >
-            <i data-lucide="info" aria-hidden="true"></i>
-          </button>
           <time id="radarTime" hidden>Loading...</time>
         </div>
         <div class="radar-map-wrap">
@@ -122,6 +164,36 @@
           <input id="radarSlider" type="range" min="0" max="0" value="0" step="1" disabled />
         </label>
         <div class="slider-timestamps" id="sliderTimestamps" aria-hidden="true"></div>
+      </section>
+
+      <section
+        class="forecast-panel"
+        id="forecastPanel"
+        aria-label="5 days"
+        role="tabpanel"
+        aria-labelledby="forecastTab"
+        hidden
+      >
+        <div class="forecast-head">
+          <h2>5 days</h2>
+        </div>
+        <table class="forecast-table">
+          <thead>
+            <tr>
+              <th scope="col">Day</th>
+              <th scope="col">Sky</th>
+              <th scope="col">Max</th>
+              <th scope="col">Min</th>
+              <th scope="col">Rain</th>
+              <th scope="col">Wind</th>
+            </tr>
+          </thead>
+          <tbody id="forecastBody">
+            <tr>
+              <td class="forecast-empty" colspan="6">Loading forecast...</td>
+            </tr>
+          </tbody>
+        </table>
       </section>
     </main>
 
@@ -162,6 +234,6 @@
       crossorigin=""
     ></script>
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-    <script src="app.js?v=20260503-2"></script>
+    <script src="app.js?v=20260503-7"></script>
   </body>
 </html>

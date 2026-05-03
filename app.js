@@ -27,8 +27,10 @@ const elements = {
   locationInput: document.querySelector("#locationInput"),
   locationOptions: document.querySelector("#locationOptions"),
   locateButton: document.querySelector("#locateButton"),
+  brandButton: document.querySelector("#brandButton"),
   refreshButton: document.querySelector("#refreshButton"),
   updatedAt: document.querySelector("#updatedAt"),
+  nowPanel: document.querySelector(".now-panel"),
   currentTemp: document.querySelector("#currentTemp"),
   conditionLabel: document.querySelector("#conditionLabel"),
   conditionIcon: document.querySelector("#conditionIcon"),
@@ -37,6 +39,10 @@ const elements = {
   rainTotal: document.querySelector("#rainTotal"),
   windText: document.querySelector("#windText"),
   windArrow: document.querySelector("#windArrow"),
+  rainTab: document.querySelector("#rainTab"),
+  forecastTab: document.querySelector("#forecastTab"),
+  forecastPanel: document.querySelector("#forecastPanel"),
+  forecastBody: document.querySelector("#forecastBody"),
   infoButton: document.querySelector("#infoButton"),
   infoDialog: document.querySelector("#infoDialog"),
   radarPanel: document.querySelector(".radar-panel"),
@@ -98,6 +104,7 @@ let locationSearchResults = [];
 let locationSearchTimer;
 let locationSearchAbortController;
 let sliderTimestampTimer;
+let activeMobileView = "rain";
 let selectedLocation = loadStoredLocation() || DEFAULT_LOCATION;
 let refreshTimer;
 
@@ -109,6 +116,7 @@ function init() {
   renderLocation();
   initMap();
   bindEvents();
+  syncForecastViewForViewport();
   loadAll();
   refreshTimer = window.setInterval(loadAll, 10 * 60 * 1000);
 }
@@ -140,7 +148,18 @@ function bindEvents() {
     }
   });
   elements.locateButton.addEventListener("click", useCurrentLocation);
+  if (elements.brandButton) {
+    elements.brandButton.addEventListener("click", openInfoDialog);
+    elements.brandButton.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openInfoDialog();
+      }
+    });
+  }
   elements.refreshButton.addEventListener("click", loadAll);
+  elements.rainTab.addEventListener("click", () => setMobileView("rain"));
+  elements.forecastTab.addEventListener("click", () => setMobileView("forecast"));
   if (elements.infoButton && elements.infoDialog) {
     elements.infoButton.addEventListener("click", openInfoDialog);
     elements.infoDialog.addEventListener("click", (event) => {
@@ -155,6 +174,7 @@ function bindEvents() {
   window.addEventListener("resize", () => {
     scheduleSliderTimestampsUpdate();
     resizeLocationInput(elements.locationInput.value);
+    syncForecastViewForViewport();
   });
 }
 
@@ -162,7 +182,7 @@ function renderLocation() {
   elements.locationInput.value = selectedLocation.name;
   elements.locationInput.title = selectedLocation.label || selectedLocation.name;
   resizeLocationInput(selectedLocation.name);
-  document.title = `MyMeteo ${selectedLocation.name}`;
+  document.title = "MyMeteo";
 }
 
 function openInfoDialog() {
@@ -176,6 +196,42 @@ function openInfoDialog() {
   }
 
   elements.infoDialog.setAttribute("open", "");
+}
+
+function setMobileView(view) {
+  activeMobileView = view;
+  syncForecastViewForViewport();
+}
+
+function syncForecastViewForViewport() {
+  const isDesktop = window.matchMedia("(min-width: 760px)").matches;
+  const showForecast = isDesktop || activeMobileView === "forecast";
+  const showRadar = isDesktop || activeMobileView === "rain";
+
+  elements.forecastPanel.hidden = !showForecast;
+  elements.radarPanel.hidden = !showRadar;
+  elements.nowPanel.hidden = false;
+  updateMobileTabs();
+
+  if (window.lucide) {
+    window.lucide.createIcons();
+  }
+
+  if (showRadar) {
+    refreshMapSize();
+  }
+}
+
+function updateMobileTabs() {
+  const rainActive = activeMobileView === "rain";
+  const forecastActive = activeMobileView === "forecast";
+
+  elements.rainTab.classList.toggle("is-active", rainActive);
+  elements.forecastTab.classList.toggle("is-active", forecastActive);
+  elements.rainTab.setAttribute("aria-selected", String(rainActive));
+  elements.forecastTab.setAttribute("aria-selected", String(forecastActive));
+  elements.rainTab.tabIndex = rainActive ? 0 : -1;
+  elements.forecastTab.tabIndex = forecastActive ? 0 : -1;
 }
 
 function handleLocationInput() {
@@ -428,8 +484,15 @@ async function loadWeather() {
       "wind_direction_10m",
       "wind_gusts_10m",
     ].join(","),
-    daily: ["temperature_2m_max", "temperature_2m_min", "precipitation_sum"].join(","),
-    forecast_days: "1",
+    daily: [
+      "weather_code",
+      "temperature_2m_max",
+      "temperature_2m_min",
+      "precipitation_sum",
+      "wind_speed_10m_max",
+      "wind_direction_10m_dominant",
+    ].join(","),
+    forecast_days: "6",
     timezone: selectedLocation.timezone,
     timeformat: "unixtime",
     wind_speed_unit: "kmh",
@@ -447,6 +510,7 @@ async function loadWeather() {
     console.error(error);
     elements.updatedAt.textContent = "Forecast unavailable";
     elements.updatedAt.classList.add("error");
+    renderFiveDayForecast();
   }
 }
 
@@ -465,7 +529,7 @@ function renderWeather(data) {
   elements.maxTemp.textContent = formatOptionalTemperature(daily.temperature_2m_max?.[0]);
   elements.minTemp.textContent = formatOptionalTemperature(daily.temperature_2m_min?.[0]);
   elements.rainTotal.textContent = formatOptionalRain(daily.precipitation_sum?.[0]);
-  elements.windText.textContent = `${degreesToCompass(windDirection)} Bft ${beaufort}`;
+  elements.windText.textContent = `${degreesToCompass(windDirection)} ${beaufort}`;
   elements.windText.title = `${windSpeed} km/h, blowing toward ${degreesToCompass(downwindDirection)}`;
   elements.windArrow.style.transform = `rotate(${downwindDirection}deg)`;
   elements.windArrow.title = `Blowing toward ${degreesToCompass(downwindDirection)}`;
@@ -476,6 +540,83 @@ function renderWeather(data) {
   const mark = document.querySelector(".condition-mark");
   mark.style.background = condition.tone;
   mark.style.color = condition.ink;
+  renderFiveDayForecast(daily);
+}
+
+function renderFiveDayForecast(daily) {
+  const days = buildFiveDayForecast(daily);
+  if (!days.length) {
+    elements.forecastBody.innerHTML = '<tr><td class="forecast-empty" colspan="6">Forecast unavailable</td></tr>';
+    return;
+  }
+
+  elements.forecastBody.replaceChildren(...days.map(createForecastRow));
+
+  if (window.lucide) {
+    window.lucide.createIcons();
+  }
+}
+
+function buildFiveDayForecast(daily) {
+  if (!daily?.time?.length) {
+    return [];
+  }
+
+  return daily.time.slice(1, 6).map((time, offset) => {
+    const index = offset + 1;
+    const windSpeed = daily.wind_speed_10m_max?.[index];
+    const windDirection = daily.wind_direction_10m_dominant?.[index];
+    const condition = getCondition(daily.weather_code?.[index], true);
+
+    return {
+      day: formatWeekday(time),
+      condition,
+      max: formatOptionalTemperature(daily.temperature_2m_max?.[index]),
+      min: formatOptionalTemperature(daily.temperature_2m_min?.[index]),
+      rain: formatOptionalRain(daily.precipitation_sum?.[index]),
+      wind: formatOptionalWind(windDirection, windSpeed),
+    };
+  });
+}
+
+function createForecastRow(day) {
+  const row = document.createElement("tr");
+  row.append(
+    createCell(day.day, "forecast-day"),
+    createIconCell(day.condition),
+    createCell(day.max, "temp-max"),
+    createCell(day.min, "temp-min"),
+    createCell(day.rain),
+    createCell(day.wind, "forecast-wind"),
+  );
+  return row;
+}
+
+function createCell(text, className) {
+  const cell = document.createElement("td");
+  cell.textContent = text;
+  if (className) {
+    cell.className = className;
+  }
+  return cell;
+}
+
+function createIconCell(condition) {
+  const cell = document.createElement("td");
+  const mark = document.createElement("span");
+  const icon = document.createElement("i");
+  cell.className = "forecast-sky-cell";
+  mark.className = "forecast-condition-mark";
+  mark.style.background = condition.tone;
+  mark.style.color = condition.ink;
+  mark.title = condition.label;
+  mark.setAttribute("aria-label", condition.label);
+  mark.setAttribute("role", "img");
+  icon.dataset.lucide = condition.icon;
+  icon.setAttribute("aria-hidden", "true");
+  mark.appendChild(icon);
+  cell.appendChild(mark);
+  return cell;
 }
 
 function renderConditionIcon(icon) {
@@ -791,7 +932,12 @@ function updateSliderTimestamps() {
 
   const trackWidth = elements.radarSlider.getBoundingClientRect().width;
   const maxLabels = Math.max(2, Math.min(13, Math.floor(trackWidth / 58)));
-  const dates = getSliderTimestampDates(range.start, range.end, maxLabels);
+  const dates = omitCrampedEndTimestamp(
+    getSliderTimestampDates(range.start, range.end, maxLabels),
+    range.start,
+    range.end,
+    trackWidth,
+  );
   const track = document.createElement("div");
   track.className = "slider-timestamps-track";
 
@@ -801,6 +947,18 @@ function updateSliderTimestamps() {
 
   elements.sliderTimestamps.hidden = false;
   elements.sliderTimestamps.replaceChildren(track);
+}
+
+function omitCrampedEndTimestamp(dates, start, end, trackWidth) {
+  const desktopTrackWidth = 520;
+  const oneMinute = 60 * 1000;
+  if (trackWidth < desktopTrackWidth || dates.length < 3) {
+    return dates;
+  }
+
+  const lastDate = dates[dates.length - 1];
+  const landsOnEnd = Math.abs(lastDate.getTime() - end.getTime()) < oneMinute;
+  return landsOnEnd ? dates.slice(0, -1) : dates;
 }
 
 function getSliderTimestampDates(start, end, maxLabels) {
@@ -1164,6 +1322,30 @@ function formatOptionalTemperature(value) {
 
 function formatOptionalRain(value) {
   return Number.isFinite(value) ? `${Math.round(value)} mm` : "-- mm";
+}
+
+function formatOptionalWind(direction, speed) {
+  if (!Number.isFinite(direction) || !Number.isFinite(speed)) {
+    return "--";
+  }
+
+  return `${degreesToCompass(direction)} ${kmhToBeaufort(Math.round(speed))}`;
+}
+
+function formatWeekday(value) {
+  const date = typeof value === "number" ? new Date(value * 1000) : new Date(`${value}T12:00:00`);
+
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      weekday: "short",
+      timeZone: selectedLocation.timezone,
+    }).format(date);
+  } catch (error) {
+    return new Intl.DateTimeFormat("en-US", {
+      weekday: "short",
+      timeZone: DEFAULT_LOCATION.timezone,
+    }).format(date);
+  }
 }
 
 function formatTime(value) {
