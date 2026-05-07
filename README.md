@@ -2,6 +2,8 @@
 
 MyMeteo is a small personal weather dashboard with location search, current-location support, live weather, a 5-day outlook, and moving rain radar.
 
+[Open MyMeteo](https://msmeehui.github.io/mymeteo/)
+
 <img src="assets/mymeteo-screenshot.png" alt="MyMeteo screenshot" width="320">
 
 ## Features
