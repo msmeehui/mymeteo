@@ -8,16 +8,29 @@ const DEFAULT_LOCATION = {
 
 const storedLocationKey = "mymeteo.location";
 const libreWxrRadarUrl = "https://api.librewxr.net/public/weather-maps.json";
-const buienradarAnimationUrl = "https://image.buienradar.nl/2.0/image/animation/RadarMapRainWebmercatorNL";
+const buienradarAnimationBaseUrl = "https://image.buienradar.nl/2.0/image/animation";
 const gifDecoderModuleUrl = "https://esm.sh/gifuct-js@2.1.2?bundle";
 const buienradarBounds = [
   [48.92249926375824, 0],
   [55.77657301866769, 11.25],
 ];
-const buienradarForecastSteps = 36;
-const buienradarFrameMinutes = 5;
+const buienradarRadarModes = {
+  "3h": {
+    imageType: "RadarMapRainWebmercatorNL",
+    forecastSteps: 36,
+    frameMinutes: 5,
+    switchLabel: "3h",
+  },
+  "8h": {
+    imageType: "RadarMapRainWebmercatorNLEighthour",
+    forecastSteps: 32,
+    frameMinutes: 15,
+    switchLabel: "8h",
+  },
+};
+const buienradarDefaultRadarModeId = "3h";
 const buienradarDefaultTimeline = {
-  frameCount: buienradarForecastSteps,
+  frameCount: buienradarRadarModes[buienradarDefaultRadarModeId].forecastSteps,
   frameDurationMs: 1000,
 };
 
@@ -87,10 +100,7 @@ const weatherCodes = {
 const compassPoints = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 
 let map;
-let radarLayer;
-let radarLayerKey;
-let radarNextLayer;
-let radarNextLayerKey;
+let libreWxrRadarLayers = new Map();
 let buienradarLayer;
 let buienradarLayerKey;
 let buienradarNextLayer;
@@ -98,6 +108,12 @@ let buienradarNextLayerKey;
 let buienradarFrameUrls = [];
 let buienradarStartDate;
 let buienradarTimeline = buienradarDefaultTimeline;
+let radarResizeObserver;
+let buienradarModeControlContainer;
+let buienradarModeButton;
+let activeBuienradarRadarModeId = buienradarDefaultRadarModeId;
+let loadedBuienradarRadarModeId = buienradarDefaultRadarModeId;
+let isBuienradarRadarModeLoading = false;
 let locationMarker;
 let radarFrames = [];
 let locationSearchResults = [];
@@ -176,6 +192,14 @@ function bindEvents() {
     resizeLocationInput(elements.locationInput.value);
     syncForecastViewForViewport();
   });
+  if ("ResizeObserver" in window) {
+    radarResizeObserver = new ResizeObserver(() => {
+      refreshMapSize();
+      scheduleSliderTimestampsUpdate();
+    });
+    radarResizeObserver.observe(elements.radarPanel);
+    radarResizeObserver.observe(elements.radarMap);
+  }
 }
 
 function renderLocation() {
@@ -678,13 +702,85 @@ function initMap() {
   }).addTo(map);
 
   L.control.zoom({ position: "topright" }).addTo(map);
+  createBuienradarModeControl().addTo(map);
+  updateBuienradarModeControl();
   refreshMapSize();
 }
 
+function createBuienradarModeControl() {
+  const control = L.control({ position: "topright" });
+
+  control.onAdd = () => {
+    buienradarModeControlContainer = L.DomUtil.create("div", "leaflet-control buienradar-mode-control");
+    buienradarModeButton = L.DomUtil.create("button", "buienradar-mode-button", buienradarModeControlContainer);
+    buienradarModeButton.type = "button";
+    buienradarModeButton.addEventListener("click", toggleBuienradarRadarMode);
+    L.DomEvent.disableClickPropagation(buienradarModeControlContainer);
+    L.DomEvent.disableScrollPropagation(buienradarModeControlContainer);
+    updateBuienradarModeControl();
+    return buienradarModeControlContainer;
+  };
+
+  return control;
+}
+
+async function toggleBuienradarRadarMode(event) {
+  event?.preventDefault();
+
+  if (isBuienradarRadarModeLoading || !isInBuienradarBounds(selectedLocation)) {
+    return;
+  }
+
+  activeBuienradarRadarModeId = getNextBuienradarRadarModeId(getDisplayedBuienradarRadarModeId());
+  isBuienradarRadarModeLoading = true;
+  updateBuienradarModeControl();
+
+  try {
+    await loadRadar();
+  } finally {
+    isBuienradarRadarModeLoading = false;
+    updateBuienradarModeControl();
+  }
+}
+
+function updateBuienradarModeControl() {
+  if (!buienradarModeControlContainer || !buienradarModeButton) {
+    return;
+  }
+
+  const isAvailable = isInBuienradarBounds(selectedLocation);
+  buienradarModeControlContainer.hidden = !isAvailable;
+  if (!isAvailable) {
+    return;
+  }
+
+  const nextModeId = getNextBuienradarRadarModeId(getDisplayedBuienradarRadarModeId());
+  const nextMode = getBuienradarRadarMode(nextModeId);
+  buienradarModeButton.textContent = nextMode.switchLabel;
+  buienradarModeButton.title = `Show ${nextMode.switchLabel} rain radar`;
+  buienradarModeButton.setAttribute("aria-label", `Show ${nextMode.switchLabel} rain radar`);
+  buienradarModeButton.disabled = isBuienradarRadarModeLoading;
+}
+
+function getDisplayedBuienradarRadarModeId() {
+  return buienradarFrameUrls.length ? loadedBuienradarRadarModeId : activeBuienradarRadarModeId;
+}
+
+function getNextBuienradarRadarModeId(modeId) {
+  return modeId === "3h" ? "8h" : "3h";
+}
+
+function getBuienradarRadarMode(modeId = activeBuienradarRadarModeId) {
+  return buienradarRadarModes[modeId] || buienradarRadarModes[buienradarDefaultRadarModeId];
+}
+
 async function loadRadar() {
+  updateBuienradarModeControl();
+
   if (isInBuienradarBounds(selectedLocation)) {
     try {
       await loadBuienradarRadar();
+      updateBuienradarModeControl();
       return;
     } catch (error) {
       console.warn("Buienradar animation unavailable, falling back to LibreWXR tiles.", error);
@@ -696,11 +792,15 @@ async function loadRadar() {
   } catch (error) {
     console.error(error);
     disableRadar("Radar unavailable");
+  } finally {
+    updateBuienradarModeControl();
   }
 }
 
 async function loadBuienradarRadar() {
-  const response = await fetch(buildBuienradarAnimationUrl(), { cache: "no-store" });
+  const radarModeId = activeBuienradarRadarModeId;
+  const radarMode = getBuienradarRadarMode(radarModeId);
+  const response = await fetch(buildBuienradarAnimationUrl(radarMode), { cache: "no-store" });
   if (!response.ok) {
     throw new Error(`Buienradar responded with ${response.status}`);
   }
@@ -724,6 +824,7 @@ async function loadBuienradarRadar() {
   radarFrames = [];
 
   buienradarStartDate = startDate;
+  loadedBuienradarRadarModeId = radarModeId;
   buienradarTimeline = timeline;
   elements.radarPanel.classList.add("is-animated");
   elements.radarSlider.min = "0";
@@ -764,11 +865,13 @@ async function loadLibreWxrRadar() {
     throw new Error("No radar frames available");
   }
 
+  clearLibreWxrRadar();
   clearBuienradarRadar();
   const previousValue = Number(elements.radarSlider.value) || 0;
   const previousRatio = Number(elements.radarSlider.max) > 0 ? previousValue / Number(elements.radarSlider.max) : 0;
   const maxValue = Math.max((radarFrames.length - 1) * 100, 0);
   const nextValue = Math.round(Math.min(Math.max(previousRatio, 0), 1) * maxValue);
+  createLibreWxrRadarLayers();
   elements.radarSlider.disabled = false;
   elements.radarSlider.min = "0";
   elements.radarSlider.max = String(maxValue);
@@ -781,7 +884,14 @@ async function loadLibreWxrRadar() {
 
 function refreshMapSize() {
   window.requestAnimationFrame(() => {
+    if (!map) {
+      return;
+    }
+
     map.invalidateSize({ animate: false, pan: false });
+    window.setTimeout(() => {
+      map.invalidateSize({ animate: false, pan: false });
+    }, 120);
   });
 }
 
@@ -811,16 +921,22 @@ function setLibreWxrRadarPosition(value) {
   const lowerFrame = radarFrames[lowerIndex];
   const upperFrame = radarFrames[upperIndex];
 
-  radarLayer = setLibreWxrTileLayer(radarLayer, radarLayerKey, lowerFrame, 0.72 * (1 - progress), 20);
-  radarLayerKey = lowerFrame.path;
+  libreWxrRadarLayers.forEach((layer) => {
+    layer.setOpacity(0);
+  });
+
+  const lowerLayer = libreWxrRadarLayers.get(lowerFrame.path);
+  if (lowerLayer) {
+    lowerLayer.setZIndex(20);
+    lowerLayer.setOpacity(0.72 * (1 - progress));
+  }
 
   if (upperFrame && upperFrame !== lowerFrame && progress > 0) {
-    radarNextLayer = setLibreWxrTileLayer(radarNextLayer, radarNextLayerKey, upperFrame, 0.72 * progress, 21);
-    radarNextLayerKey = upperFrame.path;
-  } else if (radarNextLayer) {
-    map.removeLayer(radarNextLayer);
-    radarNextLayer = undefined;
-    radarNextLayerKey = undefined;
+    const upperLayer = libreWxrRadarLayers.get(upperFrame.path);
+    if (upperLayer) {
+      upperLayer.setZIndex(21);
+      upperLayer.setOpacity(0.72 * progress);
+    }
   }
 
   const displayTime = interpolateUnixTime(lowerFrame.time, upperFrame.time, progress);
@@ -870,7 +986,8 @@ function setBuienradarFramePosition(value) {
   }
 
   const displayIndex = Math.round(framePosition);
-  const frameDate = new Date(buienradarStartDate.getTime() + displayIndex * buienradarFrameMinutes * 60 * 1000);
+  const radarMode = getBuienradarRadarMode(loadedBuienradarRadarModeId);
+  const frameDate = new Date(buienradarStartDate.getTime() + displayIndex * radarMode.frameMinutes * 60 * 1000);
   const label = formatClock(frameDate, DEFAULT_LOCATION.timezone);
   elements.radarTime.textContent = label;
   elements.rainForecastBadge.textContent = label;
@@ -900,7 +1017,8 @@ function getBuienradarDateForSlider(value, snapToFrame = false) {
   const maxFramePosition = Math.max(buienradarFrameUrls.length - 1, 0);
   const framePosition = Math.min(Math.max(value / 100, 0), maxFramePosition);
   const displayPosition = snapToFrame ? Math.round(framePosition) : framePosition;
-  return new Date(buienradarStartDate.getTime() + displayPosition * buienradarFrameMinutes * 60 * 1000);
+  const radarMode = getBuienradarRadarMode(loadedBuienradarRadarModeId);
+  return new Date(buienradarStartDate.getTime() + displayPosition * radarMode.frameMinutes * 60 * 1000);
 }
 
 function getLibreWxrDateForSlider(value) {
@@ -932,12 +1050,7 @@ function updateSliderTimestamps() {
 
   const trackWidth = elements.radarSlider.getBoundingClientRect().width;
   const maxLabels = Math.max(2, Math.min(13, Math.floor(trackWidth / 58)));
-  const dates = omitCrampedEndTimestamp(
-    getSliderTimestampDates(range.start, range.end, maxLabels),
-    range.start,
-    range.end,
-    trackWidth,
-  );
+  const dates = getSliderTimestampDates(range.start, range.end, maxLabels);
   const track = document.createElement("div");
   track.className = "slider-timestamps-track";
 
@@ -947,18 +1060,6 @@ function updateSliderTimestamps() {
 
   elements.sliderTimestamps.hidden = false;
   elements.sliderTimestamps.replaceChildren(track);
-}
-
-function omitCrampedEndTimestamp(dates, start, end, trackWidth) {
-  const desktopTrackWidth = 520;
-  const oneMinute = 60 * 1000;
-  if (trackWidth < desktopTrackWidth || dates.length < 3) {
-    return dates;
-  }
-
-  const lastDate = dates[dates.length - 1];
-  const landsOnEnd = Math.abs(lastDate.getTime() - end.getTime()) < oneMinute;
-  return landsOnEnd ? dates.slice(0, -1) : dates;
 }
 
 function getSliderTimestampDates(start, end, maxLabels) {
@@ -1008,26 +1109,22 @@ function ceilDateToMinuteInterval(date, intervalMinutes) {
   return new Date(Math.ceil(date.getTime() / intervalMs) * intervalMs);
 }
 
-function setLibreWxrTileLayer(layer, currentKey, frame, opacity, zIndex) {
-  if (layer && currentKey === frame.path) {
-    layer.setOpacity(opacity);
-    return layer;
-  }
+function createLibreWxrRadarLayers() {
+  radarFrames.forEach((frame, index) => {
+    const layer = L.tileLayer(`${frame.host}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`, {
+      tileSize: 256,
+      opacity: 0,
+      maxNativeZoom: 7,
+      maxZoom: 11,
+      keepBuffer: 4,
+      updateWhenIdle: false,
+      updateWhenZooming: false,
+      attribution: '<a href="https://librewxr.net/">LibreWXR</a>',
+    }).addTo(map);
 
-  if (layer) {
-    map.removeLayer(layer);
-  }
-
-  const nextLayer = L.tileLayer(`${frame.host}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`, {
-    tileSize: 256,
-    opacity,
-    maxNativeZoom: 7,
-    maxZoom: 11,
-    attribution: '<a href="https://librewxr.net/">LibreWXR</a>',
-  }).addTo(map);
-
-  nextLayer.setZIndex(zIndex);
-  return nextLayer;
+    layer.setZIndex(20 + index);
+    libreWxrRadarLayers.set(frame.path, layer);
+  });
 }
 
 function setBuienradarImageLayer(layer, currentKey, frameIndex, opacity, zIndex, attribution) {
@@ -1050,17 +1147,10 @@ function setBuienradarImageLayer(layer, currentKey, frameIndex, opacity, zIndex,
 }
 
 function clearLibreWxrRadar() {
-  if (radarLayer) {
-    map.removeLayer(radarLayer);
-    radarLayer = undefined;
-    radarLayerKey = undefined;
-  }
-
-  if (radarNextLayer) {
-    map.removeLayer(radarNextLayer);
-    radarNextLayer = undefined;
-    radarNextLayerKey = undefined;
-  }
+  libreWxrRadarLayers.forEach((layer) => {
+    map.removeLayer(layer);
+  });
+  libreWxrRadarLayers.clear();
 }
 
 function clearBuienradarRadar() {
@@ -1083,7 +1173,7 @@ function clearBuienradarRadar() {
   buienradarFrameUrls = [];
 }
 
-function buildBuienradarAnimationUrl() {
+function buildBuienradarAnimationUrl(radarMode = getBuienradarRadarMode()) {
   const params = new URLSearchParams({
     height: "512",
     width: "512",
@@ -1092,12 +1182,12 @@ function buildBuienradarAnimationUrl() {
     renderBranding: "False",
     renderText: "False",
     history: "0",
-    forecast: String(buienradarForecastSteps),
+    forecast: String(radarMode.forecastSteps),
     skip: "0",
     cache: String(Math.floor(Date.now() / 300000)),
   });
 
-  return `${buienradarAnimationUrl}?${params}`;
+  return `${buienradarAnimationBaseUrl}/${radarMode.imageType}?${params}`;
 }
 
 function isInBuienradarBounds(location) {

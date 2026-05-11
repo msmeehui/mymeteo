@@ -496,6 +496,47 @@ h1 {
   font-size: 0.62rem;
 }
 
+.buienradar-mode-control {
+  margin-top: 9px;
+}
+
+.buienradar-mode-control[hidden] {
+  display: none;
+}
+
+.buienradar-mode-button {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgb(23 32 27 / 0.24);
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.96);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: 0 2px 7px rgb(23 32 27 / 0.17);
+  cursor: pointer;
+}
+
+.buienradar-mode-button:hover,
+.buienradar-mode-button:focus-visible {
+  background: #fffaf0;
+}
+
+.buienradar-mode-button:focus-visible {
+  outline: 2px solid var(--rain);
+  outline-offset: 2px;
+}
+
+.buienradar-mode-button:disabled {
+  cursor: progress;
+  opacity: 0.72;
+}
+
 .radar-slider {
   min-height: 34px;
   display: grid;
@@ -1154,7 +1195,7 @@ input[type="range"]::-moz-range-thumb {
   }
 
   .slider-timestamp {
-    font-size: 0.82rem;
+    font-size: 0.74rem;
   }
 
   .slider-label {
