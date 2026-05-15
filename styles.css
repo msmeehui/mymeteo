@@ -537,6 +537,21 @@ h1 {
   opacity: 0.72;
 }
 
+.buienradar-mode-button.is-loading {
+  position: relative;
+  color: transparent;
+}
+
+.buienradar-mode-button.is-loading::after {
+  width: 17px;
+  height: 17px;
+  content: "";
+  border: 2px solid rgb(47 97 112 / 0.22);
+  border-top-color: var(--rain);
+  border-radius: 50%;
+  animation: spin 800ms linear infinite;
+}
+
 .radar-slider {
   min-height: 34px;
   display: grid;
@@ -984,7 +999,8 @@ input[type="range"]::-moz-range-thumb {
   color: var(--ink);
 }
 
-.is-loading .icon-button svg {
+.is-loading .icon-button svg,
+.icon-button.is-working svg {
   animation: spin 900ms linear infinite;
 }
 

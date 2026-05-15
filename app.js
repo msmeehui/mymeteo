@@ -106,8 +106,11 @@ let buienradarLayerKey;
 let buienradarNextLayer;
 let buienradarNextLayerKey;
 let buienradarFrameUrls = [];
+let buienradarRadarCache = new Map();
+let buienradarRadarRequests = new Map();
 let buienradarStartDate;
 let buienradarTimeline = buienradarDefaultTimeline;
+let buienradarDisplayRequestId = 0;
 let radarResizeObserver;
 let buienradarModeControlContainer;
 let buienradarModeButton;
@@ -120,6 +123,7 @@ let locationSearchResults = [];
 let locationSearchTimer;
 let locationSearchAbortController;
 let sliderTimestampTimer;
+let buienradarPreloadTimer;
 let activeMobileView = "rain";
 let selectedLocation = loadStoredLocation() || DEFAULT_LOCATION;
 let refreshTimer;
@@ -486,6 +490,7 @@ function updateMapLocation() {
   const latLng = [selectedLocation.lat, selectedLocation.lon];
   locationMarker.setLatLng(latLng);
   map.setView(latLng, 7, { animate: false });
+  refreshMapSize();
 }
 
 async function loadAll() {
@@ -690,6 +695,9 @@ function initMap() {
 
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 18,
+    keepBuffer: 6,
+    updateWhenIdle: false,
+    updateWhenZooming: false,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
   }).addTo(map);
 
@@ -727,18 +735,40 @@ function createBuienradarModeControl() {
 async function toggleBuienradarRadarMode(event) {
   event?.preventDefault();
 
-  if (isBuienradarRadarModeLoading || !isInBuienradarBounds(selectedLocation)) {
+  if (isBuienradarRadarModeLoading || !isInBuienradarBounds(selectedLocation) || !buienradarFrameUrls.length) {
     return;
   }
 
-  activeBuienradarRadarModeId = getNextBuienradarRadarModeId(getDisplayedBuienradarRadarModeId());
+  const nextModeId = getNextBuienradarRadarModeId(getDisplayedBuienradarRadarModeId());
+  const cachedRadar = buienradarRadarCache.get(nextModeId);
+  activeBuienradarRadarModeId = nextModeId;
+
+  if (cachedRadar) {
+    buienradarDisplayRequestId += 1;
+    displayBuienradarRadar(cachedRadar);
+    scheduleInactiveBuienradarRadarPreload();
+    updateBuienradarModeControl();
+    return;
+  }
+
+  const requestId = buienradarDisplayRequestId + 1;
+  buienradarDisplayRequestId = requestId;
   isBuienradarRadarModeLoading = true;
   updateBuienradarModeControl();
+  setRefreshButtonWorking(true);
 
   try {
-    await loadRadar();
+    const radar = await fetchBuienradarRadarMode(nextModeId);
+    if (requestId === buienradarDisplayRequestId && activeBuienradarRadarModeId === nextModeId && isInBuienradarBounds(selectedLocation)) {
+      displayBuienradarRadar(radar);
+      scheduleInactiveBuienradarRadarPreload();
+    }
+  } catch (error) {
+    activeBuienradarRadarModeId = getDisplayedBuienradarRadarModeId();
+    console.warn(`Could not switch to the ${nextModeId} Buienradar mode.`, error);
   } finally {
     isBuienradarRadarModeLoading = false;
+    setRefreshButtonWorking(false);
     updateBuienradarModeControl();
   }
 }
@@ -759,7 +789,9 @@ function updateBuienradarModeControl() {
   buienradarModeButton.textContent = nextMode.switchLabel;
   buienradarModeButton.title = `Show ${nextMode.switchLabel} rain radar`;
   buienradarModeButton.setAttribute("aria-label", `Show ${nextMode.switchLabel} rain radar`);
-  buienradarModeButton.disabled = isBuienradarRadarModeLoading;
+  buienradarModeButton.disabled = isBuienradarRadarModeLoading || !buienradarFrameUrls.length;
+  buienradarModeButton.classList.toggle("is-loading", isBuienradarRadarModeLoading);
+  buienradarModeButton.toggleAttribute("aria-busy", isBuienradarRadarModeLoading);
 }
 
 function getDisplayedBuienradarRadarModeId() {
@@ -799,6 +831,42 @@ async function loadRadar() {
 
 async function loadBuienradarRadar() {
   const radarModeId = activeBuienradarRadarModeId;
+  const requestId = buienradarDisplayRequestId + 1;
+  buienradarDisplayRequestId = requestId;
+  const radar = await fetchBuienradarRadarMode(radarModeId, { forceRefresh: true });
+  if (requestId !== buienradarDisplayRequestId || activeBuienradarRadarModeId !== radarModeId || !isInBuienradarBounds(selectedLocation)) {
+    return;
+  }
+
+  displayBuienradarRadar(radar);
+  scheduleInactiveBuienradarRadarPreload();
+}
+
+async function fetchBuienradarRadarMode(radarModeId, { forceRefresh = false } = {}) {
+  const cachedRadar = buienradarRadarCache.get(radarModeId);
+  if (!forceRefresh && cachedRadar) {
+    return cachedRadar;
+  }
+
+  const existingRequest = buienradarRadarRequests.get(radarModeId);
+  if (existingRequest) {
+    return existingRequest;
+  }
+
+  const request = downloadBuienradarRadarMode(radarModeId)
+    .then((radar) => {
+      cacheBuienradarRadar(radar);
+      return radar;
+    })
+    .finally(() => {
+      buienradarRadarRequests.delete(radarModeId);
+    });
+
+  buienradarRadarRequests.set(radarModeId, request);
+  return request;
+}
+
+async function downloadBuienradarRadarMode(radarModeId) {
   const radarMode = getBuienradarRadarMode(radarModeId);
   const response = await fetch(buildBuienradarAnimationUrl(radarMode), { cache: "no-store" });
   if (!response.ok) {
@@ -819,29 +887,46 @@ async function loadBuienradarRadar() {
     throw new Error("Buienradar animation could not be decoded");
   }
 
+  await preloadImage(frameUrls[0]);
+
+  return {
+    modeId: radarModeId,
+    frameUrls,
+    startDate,
+    timeline,
+  };
+}
+
+function displayBuienradarRadar(radar) {
   clearLibreWxrRadar();
-  clearBuienradarRadar();
+  clearBuienradarLayers();
   radarFrames = [];
 
-  buienradarStartDate = startDate;
-  loadedBuienradarRadarModeId = radarModeId;
-  buienradarTimeline = timeline;
+  const previousFrameUrls = buienradarFrameUrls;
+  activeBuienradarRadarModeId = radar.modeId;
+  buienradarStartDate = radar.startDate;
+  loadedBuienradarRadarModeId = radar.modeId;
+  buienradarTimeline = radar.timeline;
   elements.radarPanel.classList.add("is-animated");
   elements.radarSlider.min = "0";
   elements.radarSlider.value = "0";
   elements.radarTime.classList.remove("error");
 
-  buienradarFrameUrls = frameUrls;
+  buienradarFrameUrls = radar.frameUrls;
   buienradarTimeline = {
     ...buienradarTimeline,
-    frameCount: frameUrls.length,
+    frameCount: radar.frameUrls.length,
   };
-  elements.radarSlider.disabled = frameUrls.length < 2;
+  elements.radarSlider.disabled = radar.frameUrls.length < 2;
   elements.radarSlider.max = String(Math.max((buienradarTimeline.frameCount - 1) * 100, 0));
   elements.radarSlider.step = "1";
   setBuienradarFramePosition(0);
   updateSliderTimestamps();
   refreshMapSize();
+
+  if (previousFrameUrls !== buienradarFrameUrls && !isBuienradarFrameUrlsCached(previousFrameUrls)) {
+    previousFrameUrls.forEach(revokeFrameUrl);
+  }
 }
 
 async function loadLibreWxrRadar() {
@@ -884,14 +969,18 @@ async function loadLibreWxrRadar() {
 
 function refreshMapSize() {
   window.requestAnimationFrame(() => {
-    if (!map) {
-      return;
-    }
+    const invalidate = () => {
+      if (!map) {
+        return;
+      }
 
-    map.invalidateSize({ animate: false, pan: false });
-    window.setTimeout(() => {
       map.invalidateSize({ animate: false, pan: false });
-    }, 120);
+    };
+
+    invalidate();
+    [80, 220, 600].forEach((delay) => {
+      window.setTimeout(invalidate, delay);
+    });
   });
 }
 
@@ -1127,6 +1216,53 @@ function createLibreWxrRadarLayers() {
   });
 }
 
+function scheduleInactiveBuienradarRadarPreload() {
+  window.clearTimeout(buienradarPreloadTimer);
+
+  if (!isInBuienradarBounds(selectedLocation)) {
+    return;
+  }
+
+  const nextModeId = getNextBuienradarRadarModeId(getDisplayedBuienradarRadarModeId());
+  if (buienradarRadarCache.has(nextModeId) || buienradarRadarRequests.has(nextModeId)) {
+    return;
+  }
+
+  buienradarPreloadTimer = window.setTimeout(() => {
+    preloadBuienradarRadarMode(nextModeId);
+  }, 600);
+}
+
+async function preloadBuienradarRadarMode(radarModeId) {
+  if (!isInBuienradarBounds(selectedLocation)) {
+    return;
+  }
+
+  try {
+    await fetchBuienradarRadarMode(radarModeId);
+    updateBuienradarModeControl();
+  } catch (error) {
+    console.warn(`Could not preload the ${radarModeId} Buienradar mode.`, error);
+  }
+}
+
+function cacheBuienradarRadar(radar) {
+  const previousRadar = buienradarRadarCache.get(radar.modeId);
+  buienradarRadarCache.set(radar.modeId, radar);
+
+  if (previousRadar && previousRadar.frameUrls !== radar.frameUrls && previousRadar.frameUrls !== buienradarFrameUrls) {
+    revokeBuienradarRadar(previousRadar);
+  }
+}
+
+function isBuienradarFrameUrlsCached(frameUrls) {
+  return Array.from(buienradarRadarCache.values()).some((radar) => radar.frameUrls === frameUrls);
+}
+
+function revokeBuienradarRadar(radar) {
+  radar.frameUrls.forEach(revokeFrameUrl);
+}
+
 function setBuienradarImageLayer(layer, currentKey, frameIndex, opacity, zIndex, attribution) {
   if (layer && currentKey === frameIndex) {
     layer.setOpacity(opacity);
@@ -1142,6 +1278,7 @@ function setBuienradarImageLayer(layer, currentKey, frameIndex, opacity, zIndex,
     attribution,
   }).addTo(map);
 
+  nextLayer.once("load", refreshMapSize);
   nextLayer.setZIndex(zIndex);
   return nextLayer;
 }
@@ -1153,10 +1290,7 @@ function clearLibreWxrRadar() {
   libreWxrRadarLayers.clear();
 }
 
-function clearBuienradarRadar() {
-  elements.radarPanel.classList.remove("is-animated");
-  buienradarTimeline = buienradarDefaultTimeline;
-
+function clearBuienradarLayers() {
   if (buienradarLayer) {
     map.removeLayer(buienradarLayer);
     buienradarLayer = undefined;
@@ -1168,9 +1302,19 @@ function clearBuienradarRadar() {
     buienradarNextLayer = undefined;
     buienradarNextLayerKey = undefined;
   }
+}
 
-  buienradarFrameUrls.forEach(revokeFrameUrl);
+function clearBuienradarRadar() {
+  buienradarDisplayRequestId += 1;
+  window.clearTimeout(buienradarPreloadTimer);
+  elements.radarPanel.classList.remove("is-animated");
+  buienradarTimeline = buienradarDefaultTimeline;
+  clearBuienradarLayers();
+
+  buienradarRadarCache.forEach(revokeBuienradarRadar);
+  buienradarRadarCache.clear();
   buienradarFrameUrls = [];
+  buienradarStartDate = undefined;
 }
 
 function buildBuienradarAnimationUrl(radarMode = getBuienradarRadarMode()) {
@@ -1347,6 +1491,19 @@ function revokeFrameUrl(url) {
   }
 }
 
+function preloadImage(url) {
+  if (!url) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = resolve;
+    image.onerror = resolve;
+    image.src = url;
+  });
+}
+
 async function decodeBuienradarStillFrame(buffer, type) {
   if (!("createImageBitmap" in window)) {
     return undefined;
@@ -1400,6 +1557,10 @@ function setLoading(isLoading) {
   elements.locationInput.disabled = isLoading;
   elements.locateButton.disabled = isLoading;
   elements.refreshButton.title = isLoading ? "Refreshing weather and radar data" : "Refresh weather and radar data";
+}
+
+function setRefreshButtonWorking(isWorking) {
+  elements.refreshButton.classList.toggle("is-working", isWorking);
 }
 
 function formatTemperature(value) {
@@ -1511,4 +1672,8 @@ function getBrowserTimezone() {
 }
 
 window.addEventListener("DOMContentLoaded", init);
-window.addEventListener("beforeunload", () => window.clearInterval(refreshTimer));
+window.addEventListener("beforeunload", () => {
+  window.clearInterval(refreshTimer);
+  window.clearTimeout(buienradarPreloadTimer);
+  buienradarRadarCache.forEach(revokeBuienradarRadar);
+});
