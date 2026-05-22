@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>Rain</title>
+  <path d="M17 43h29a9 9 0 0 0 1-18 13 13 0 0 0-24-4 10 10 0 0 0-6 22Z" fill="#fff" stroke="#9ea3a5" stroke-width="4.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="none" stroke="#238fc7" stroke-width="4" stroke-linecap="round">
+    <line x1="24" y1="48" x2="20" y2="56"/>
+    <line x1="34" y1="48" x2="30" y2="56"/>
+    <line x1="44" y1="48" x2="40" y2="56"/>
+  </g>
+</svg>

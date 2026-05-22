@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>Mostly clear night</title>
+  <mask id="moon-cut">
+    <rect width="64" height="64" fill="#fff"/>
+    <circle cx="38" cy="22" r="15" fill="#000"/>
+  </mask>
+  <circle cx="30" cy="29" r="15" fill="#c5cace" mask="url(#moon-cut)"/>
+  <path d="M34 46h14a5.5 5.5 0 0 0 .5-11 7.5 7.5 0 0 0-13.8-2.5A6 6 0 0 0 34 46Z" fill="#fff" stroke="#9ea3a5" stroke-width="3.7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

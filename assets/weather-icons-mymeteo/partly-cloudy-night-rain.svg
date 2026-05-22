@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>Night showers</title>
+  <mask id="moon-cut">
+    <rect width="64" height="64" fill="#fff"/>
+    <circle cx="33" cy="13" r="15" fill="#000"/>
+  </mask>
+  <circle cx="24" cy="19" r="15" fill="#c5cace" mask="url(#moon-cut)"/>
+  <path d="M17 43h29a9 9 0 0 0 1-18 13 13 0 0 0-24-4 10 10 0 0 0-6 22Z" fill="#fff" stroke="#9ea3a5" stroke-width="4.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="none" stroke="#238fc7" stroke-width="3.8" stroke-linecap="round">
+    <line x1="25" y1="48" x2="21" y2="56"/>
+    <line x1="36" y1="48" x2="32" y2="56"/>
+    <line x1="47" y1="48" x2="43" y2="56"/>
+  </g>
+</svg>

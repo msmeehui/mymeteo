@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MyMeteo Weather Icons</title>
+    <style>
+      :root { color-scheme: light; --page: #f4f0e7; --panel: #fffaf0; --ink: #17201b; --muted: #68716c; --line: #d8d0c0; }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--page); color: var(--ink); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      main { width: min(1120px, 100%); margin: 0 auto; padding: 24px 14px 32px; }
+      h1 { margin: 0 0 8px; font-size: clamp(1.6rem, 3vw, 2.2rem); letter-spacing: 0; }
+      p { max-width: 760px; margin: 0 0 22px; color: var(--muted); font-size: 1rem; line-height: 1.45; }
+      .icon-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+      .icon-card { min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+      .icon-large { width: 70px; height: 70px; display: grid; place-items: center; margin-bottom: 8px; border-radius: 8px; background: #fff; }
+      .icon-sizes { min-height: 34px; display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+      .icon-sizes img, .icon-large img { display: block; object-fit: contain; }
+      h2 { margin: 0 0 5px; font-size: .95rem; line-height: 1.15; letter-spacing: 0; }
+      code { color: var(--muted); font-size: .72rem; word-break: break-word; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>MyMeteo Weather Icons</h1>
+      <p>First-pass custom icons, shown at full size and at small forecast-table sizes for legibility checks.</p>
+      <section class="icon-grid" aria-label="Weather icon overview">
+      <article class="icon-card">
+        <div class="icon-large"><img src="assets/weather-icons-mymeteo/clear-day.svg" alt="Clear sky" width="64" height="64"></div>
+        <div class="icon-sizes" aria-hidden="true">
+          <img src="assets/weather-icons-mymeteo/clear-day.svg" width="34" height="34" alt="">
+          <img src="assets/weather-icons-mymeteo/clear-day.svg" width="28" height="28" alt="">
+          <img src="assets/weather-icons-mymeteo/clear-day.svg" width="22" height="22" alt="">
+        </div>
+        <h2>Clear sky</h2>
+        <code>clear-day.svg</code>
+      </article>
+      <article class="icon-card">
+        <div class="icon-large"><img src="assets/weather-icons-mymeteo/clear-night.svg" alt="Clear night" width="64" height="64"></div>
+        <div class="icon-sizes" aria-hidden="true">
+          <img src="assets/weather-icons-mymeteo/clear-night.svg" width="34" height="34" alt="">
+          <img src="assets/weather-icons-mymeteo/clear-night.svg" width="28" height="28" alt="">
+          <img src="assets/weather-icons-mymeteo/clear-night.svg" width="22" height="22" alt="">
+        </div>
+        <h2>Clear night</h2>
+        <code>clear-night.svg</code>
+      </article>
+      <article class="icon-card">
+        <div class="icon-large"><img src="assets/weather-icons-mymeteo/mostly-clear-day.svg" alt="Mostly clear" width="64" height="64"></div>
+        <div class="icon-sizes" aria-hidden="true">
+          <img src="assets/weather-icons-mymeteo/mostly-clear-day.svg" width="34" height="34" alt="">
+          <img src="assets/weather-icons-mymeteo/mostly-clear-day.svg" width="28" height="28" alt="">
+          <img src="assets/weather-icons-mymeteo/mostly-clear-day.svg" width="22" height="22" alt="">
+        </div>
+        <h2>Mostly clear</h2>
+        <code>mostly-clear-day.svg</code>
+      </article>
+      <article class="icon-card">
+        <div class="icon-large"><img src="assets/weather-icons-mymeteo/mostly-clear-night.svg" alt="Mostly clear night" width="64" height="64"></div>
+        <div class="icon-sizes" aria-hidden="true">
+          <img src="assets/weather-icons-mymeteo/mostly-clear-night.svg" width="34" height="34" alt="">
+          <img src="assets/weather-icons-mymeteo/mostly-clear-night.svg" width="28" height="28" alt="">
+          <img src="assets/weather-icons-mymeteo/mostly-clear-night.svg" width="22" height="22" alt="">
+        </div>
+        <h2>Mostly clear night</h2>
+        <code>mostly-clear-night.svg</code>
+      </article>
+      <article class="icon-card">
+        <div class="icon-large"><img src="assets/weather-icons-mymeteo/partly-cloudy-day.svg" alt="Partly cloudy" width="64" height="64"></div>
+        <div class="icon-sizes" aria-hidden="true">
+          <img src="assets/weather-icons-mymeteo/partly-cloudy-day.svg" width="34" height="34" alt="">
+          <img src="assets/weather-icons-mymeteo/partly-cloudy-day.svg" width="28" height="28" alt="">
+          <img src="assets/weather-icons-mymeteo/partly-cloudy-day.svg" width="22" height="22" alt="">
+        </div>
+        <h2>Partly cloudy</h2>
+        <code>partly-cloudy-day.svg</code>
+      </article>
+      <article class="icon-card">
+        <div class="icon-large"><img src="assets/weather-icons-mymeteo/partly-cloudy-night.svg" alt="Partly cloudy night" width="64" height="64"></div>
+        <div class="icon-sizes" aria-hidden="true">
+          <img src="assets/weather-icons-mymeteo/partly-cloudy-night.svg" width="34" height="34" alt="">
+          <img src="assets/weather-icons-mymeteo/partly-cloudy-night.svg" width="28" height="28" alt="">
+          <img src="assets/weather-icons-mymeteo/partly-cloudy-night.svg" width="22" height="22" alt="">
+        </div>
+        <h2>Partly cloudy night</h2>
+        <code>partly-cloudy-night.svg</code>
+      </article>
+      <article class="icon-card">
+        <div class="icon-large"><img src="assets/weather-icons-mymeteo/overcast-day.svg" alt="Overcast" width="64" height="64"></div>
+        <div class="icon-sizes" aria-hidden="true">
+          <img src="assets/weather-icons-mymeteo/overcast-day.svg" width="34" height="34" alt="">
+          <img src="assets/weather-icons-mymeteo/overcast-day.svg" width="28" height="28" alt="">
+          <img src="assets/weather-icons-mymeteo/overcast-day.svg" width="22" height="22" alt="">
+        </div>
+        <h2>Overcast</h2>
+        <code>overcast-day.svg</code>
+      </article>
+      <article class="icon-card">
+        <div class="icon-large"><img src="assets/weather-icons-mymeteo/overcast-night.svg" alt="Overcast night" width="64" height="64"></div>
+        <div class="icon-sizes" aria-hidden="true">
+          <img src="assets/weather-icons-mymeteo/overcast-night.svg" width="34" height="34" alt="">
+          <img src="assets/weather-icons-mymeteo/overcast-night.svg" width="28" height="28" alt="">
+          <img src="assets/weather-icons-mymeteo/overcast-night.svg" width="22" height="22" alt="">
+        </div>
+        <h2>Overcast night</h2>
+        <code>overcast-night.svg</code>
+      </article>
+      <article class="icon-card">
+        <div class="icon-large"><img src="assets/weather-icons-mymeteo/fog-day.svg" alt="Fog" width="64" height="64"></div>
+        <div class="icon-sizes" aria-hidden="true">
+          <img src="assets/weather-icons-mymeteo/fog-day.svg" width="34" height="34" alt="">
+          <img src="assets/weather-icons-mymeteo/fog-day.svg" width="28" height="28" alt="">
+          <img src="assets/weather-icons-mymeteo/fog-day.svg" width="22" height="22" alt="">
+        </div>
+        <h2>Fog</h2>
+        <code>fog-day.svg</code>
+      </article>
+      <article class="icon-card">
+        <div class="icon-large"><img src="assets/weather-icons-mymeteo/fog-night.svg" alt="Fog night" width="64" height="64"></div>
+        <div class="icon-sizes" aria-hidden="true">
+          <img src="assets/weather-icons-mymeteo/fog-night.svg" width="34" height="34" alt="">
+          <img src="assets/weather-icons-mymeteo/fog-night.svg" width="28" height="28" alt="">
+          <img src="assets/weather-icons-mymeteo/fog-night.svg" width="22" height="22" alt="">
+        </div>
+        <h2>Fog night</h2>
+        <code>fog-night.svg</code>
+      </article>
+      <article class="icon-card">
+        <div class="icon-large"><img src="assets/weather-icons-mymeteo/drizzle.svg" alt="Drizzle" width="64" height="64"></div>
+        <div class="icon-sizes" aria-hidden="true">
+          <img src="assets/weather-icons-mymeteo/drizzle.svg" width="34" height="34" alt="">
+          <img src="assets/weather-icons-mymeteo/drizzle.svg" width="28" height="28" alt="">
+          <img src="assets/weather-icons-mymeteo/drizzle.svg" width="22" height="22" alt="">
+        </div>
+        <h2>Drizzle</h2>
+        <code>drizzle.svg</code>
+      </article>
+      <article class="icon-card">
+        <div class="icon-large"><img src="assets/weather-icons-mymeteo/overcast-sleet.svg" alt="Sleet" width="64" height="64"></div>
+        <div class="icon-sizes" aria-hidden="true">
+          <img src="assets/weather-icons-mymeteo/overcast-sleet.svg" width="34" height="34" alt="">
+          <img src="assets/weather-icons-mymeteo/overcast-sleet.svg" width="28" height="28" alt="">
+          <img src="assets/weather-icons-mymeteo/overcast-sleet.svg" width="22" height="22" alt="">
+        </div>
+        <h2>Sleet</h2>
+        <code>overcast-sleet.svg</code>
+      </article>
+      <article class="icon-card">
+        <div class="icon-large"><img src="assets/weather-icons-mymeteo/rain.svg" alt="Rain" width="64" height="64"></div>
+        <div class="icon-sizes" aria-hidden="true">
+          <img src="assets/weather-icons-mymeteo/rain.svg" width="34" height="34" alt="">
+          <img src="assets/weather-icons-mymeteo/rain.svg" width="28" height="28" alt="">
+          <img src="assets/weather-icons-mymeteo/rain.svg" width="22" height="22" alt="">
+        </div>
+        <h2>Rain</h2>
+        <code>rain.svg</code>
+      </article>
+      <article class="icon-card">
+        <div class="icon-large"><img src="assets/weather-icons-mymeteo/overcast-rain.svg" alt="Overcast rain" width="64" height="64"></div>
+        <div class="icon-sizes" aria-hidden="true">
+          <img src="assets/weather-icons-mymeteo/overcast-rain.svg" width="34" height="34" alt="">
+          <img src="assets/weather-icons-mymeteo/overcast-rain.svg" width="28" height="28" alt="">
+          <img src="assets/weather-icons-mymeteo/overcast-rain.svg" width="22" height="22" alt="">
+        </div>
+        <h2>Overcast rain</h2>
+        <code>overcast-rain.svg</code>
+      </article>
+      <article class="icon-card">
+        <div class="icon-large"><img src="assets/weather-icons-mymeteo/partly-cloudy-day-rain.svg" alt="Showers" width="64" height="64"></div>
+        <div class="icon-sizes" aria-hidden="true">
+          <img src="assets/weather-icons-mymeteo/partly-cloudy-day-rain.svg" width="34" height="34" alt="">
+          <img src="assets/weather-icons-mymeteo/partly-cloudy-day-rain.svg" width="28" height="28" alt="">
+          <img src="assets/weather-icons-mymeteo/partly-cloudy-day-rain.svg" width="22" height="22" alt="">
+        </div>
+        <h2>Showers</h2>
+        <code>partly-cloudy-day-rain.svg</code>
+      </article>
+      <article class="icon-card">
+        <div class="icon-large"><img src="assets/weather-icons-mymeteo/partly-cloudy-night-rain.svg" alt="Night showers" width="64" height="64"></div>
+        <div class="icon-sizes" aria-hidden="true">
+          <img src="assets/weather-icons-mymeteo/partly-cloudy-night-rain.svg" width="34" height="34" alt="">
+          <img src="assets/weather-icons-mymeteo/partly-cloudy-night-rain.svg" width="28" height="28" alt="">
+          <img src="assets/weather-icons-mymeteo/partly-cloudy-night-rain.svg" width="22" height="22" alt="">
+        </div>
+        <h2>Night showers</h2>
+        <code>partly-cloudy-night-rain.svg</code>
+      </article>
+      <article class="icon-card">
+        <div class="icon-large"><img src="assets/weather-icons-mymeteo/snow.svg" alt="Snow" width="64" height="64"></div>
+        <div class="icon-sizes" aria-hidden="true">
+          <img src="assets/weather-icons-mymeteo/snow.svg" width="34" height="34" alt="">
+          <img src="assets/weather-icons-mymeteo/snow.svg" width="28" height="28" alt="">
+          <img src="assets/weather-icons-mymeteo/snow.svg" width="22" height="22" alt="">
+        </div>
+        <h2>Snow</h2>
+        <code>snow.svg</code>
+      </article>
+      <article class="icon-card">
+        <div class="icon-large"><img src="assets/weather-icons-mymeteo/snowflake.svg" alt="Snow grains" width="64" height="64"></div>
+        <div class="icon-sizes" aria-hidden="true">
+          <img src="assets/weather-icons-mymeteo/snowflake.svg" width="34" height="34" alt="">
+          <img src="assets/weather-icons-mymeteo/snowflake.svg" width="28" height="28" alt="">
+          <img src="assets/weather-icons-mymeteo/snowflake.svg" width="22" height="22" alt="">
+        </div>
+        <h2>Snow grains</h2>
+        <code>snowflake.svg</code>
+      </article>
+      <article class="icon-card">
+        <div class="icon-large"><img src="assets/weather-icons-mymeteo/partly-cloudy-day-snow.svg" alt="Snow showers" width="64" height="64"></div>
+        <div class="icon-sizes" aria-hidden="true">
+          <img src="assets/weather-icons-mymeteo/partly-cloudy-day-snow.svg" width="34" height="34" alt="">
+          <img src="assets/weather-icons-mymeteo/partly-cloudy-day-snow.svg" width="28" height="28" alt="">
+          <img src="assets/weather-icons-mymeteo/partly-cloudy-day-snow.svg" width="22" height="22" alt="">
+        </div>
+        <h2>Snow showers</h2>
+        <code>partly-cloudy-day-snow.svg</code>
+      </article>
+      <article class="icon-card">
+        <div class="icon-large"><img src="assets/weather-icons-mymeteo/partly-cloudy-night-snow.svg" alt="Night snow showers" width="64" height="64"></div>
+        <div class="icon-sizes" aria-hidden="true">
+          <img src="assets/weather-icons-mymeteo/partly-cloudy-night-snow.svg" width="34" height="34" alt="">
+          <img src="assets/weather-icons-mymeteo/partly-cloudy-night-snow.svg" width="28" height="28" alt="">
+          <img src="assets/weather-icons-mymeteo/partly-cloudy-night-snow.svg" width="22" height="22" alt="">
+        </div>
+        <h2>Night snow showers</h2>
+        <code>partly-cloudy-night-snow.svg</code>
+      </article>
+      <article class="icon-card">
+        <div class="icon-large"><img src="assets/weather-icons-mymeteo/thunderstorms-day-rain.svg" alt="Thunderstorm" width="64" height="64"></div>
+        <div class="icon-sizes" aria-hidden="true">
+          <img src="assets/weather-icons-mymeteo/thunderstorms-day-rain.svg" width="34" height="34" alt="">
+          <img src="assets/weather-icons-mymeteo/thunderstorms-day-rain.svg" width="28" height="28" alt="">
+          <img src="assets/weather-icons-mymeteo/thunderstorms-day-rain.svg" width="22" height="22" alt="">
+        </div>
+        <h2>Thunderstorm</h2>
+        <code>thunderstorms-day-rain.svg</code>
+      </article>
+      <article class="icon-card">
+        <div class="icon-large"><img src="assets/weather-icons-mymeteo/thunderstorms-night-rain.svg" alt="Night thunderstorm" width="64" height="64"></div>
+        <div class="icon-sizes" aria-hidden="true">
+          <img src="assets/weather-icons-mymeteo/thunderstorms-night-rain.svg" width="34" height="34" alt="">
+          <img src="assets/weather-icons-mymeteo/thunderstorms-night-rain.svg" width="28" height="28" alt="">
+          <img src="assets/weather-icons-mymeteo/thunderstorms-night-rain.svg" width="22" height="22" alt="">
+        </div>
+        <h2>Night thunderstorm</h2>
+        <code>thunderstorms-night-rain.svg</code>
+      </article>
+      <article class="icon-card">
+        <div class="icon-large"><img src="assets/weather-icons-mymeteo/thunderstorms-day-hail.svg" alt="Storm with hail" width="64" height="64"></div>
+        <div class="icon-sizes" aria-hidden="true">
+          <img src="assets/weather-icons-mymeteo/thunderstorms-day-hail.svg" width="34" height="34" alt="">
+          <img src="assets/weather-icons-mymeteo/thunderstorms-day-hail.svg" width="28" height="28" alt="">
+          <img src="assets/weather-icons-mymeteo/thunderstorms-day-hail.svg" width="22" height="22" alt="">
+        </div>
+        <h2>Storm with hail</h2>
+        <code>thunderstorms-day-hail.svg</code>
+      </article>
+      <article class="icon-card">
+        <div class="icon-large"><img src="assets/weather-icons-mymeteo/thunderstorms-night-hail.svg" alt="Night storm with hail" width="64" height="64"></div>
+        <div class="icon-sizes" aria-hidden="true">
+          <img src="assets/weather-icons-mymeteo/thunderstorms-night-hail.svg" width="34" height="34" alt="">
+          <img src="assets/weather-icons-mymeteo/thunderstorms-night-hail.svg" width="28" height="28" alt="">
+          <img src="assets/weather-icons-mymeteo/thunderstorms-night-hail.svg" width="22" height="22" alt="">
+        </div>
+        <h2>Night storm with hail</h2>
+        <code>thunderstorms-night-hail.svg</code>
+      </article>
+      </section>
+    </main>
+  </body>
+</html>

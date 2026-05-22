@@ -10,6 +10,7 @@ const storedLocationKey = "mymeteo.location";
 const libreWxrRadarUrl = "https://api.librewxr.net/public/weather-maps.json";
 const buienradarAnimationBaseUrl = "https://image.buienradar.nl/2.0/image/animation";
 const gifDecoderModuleUrl = "https://esm.sh/gifuct-js@2.1.2?bundle";
+const weatherIconBasePath = "assets/weather-icons-mymeteo/";
 const buienradarBounds = [
   [48.92249926375824, 0],
   [55.77657301866769, 11.25],
@@ -46,7 +47,6 @@ const elements = {
   nowPanel: document.querySelector(".now-panel"),
   currentTemp: document.querySelector("#currentTemp"),
   conditionLabel: document.querySelector("#conditionLabel"),
-  conditionIcon: document.querySelector("#conditionIcon"),
   maxTemp: document.querySelector("#maxTemp"),
   minTemp: document.querySelector("#minTemp"),
   rainTotal: document.querySelector("#rainTotal"),
@@ -67,34 +67,155 @@ const elements = {
 };
 
 const weatherCodes = {
-  0: { label: "Clear sky", icon: "sun", tone: "#f8de9c", ink: "#6d4b00" },
-  1: { label: "Mostly clear", icon: "cloud-sun", tone: "#f8de9c", ink: "#6d4b00" },
-  2: { label: "Partly cloudy", icon: "cloud-sun", tone: "#dceee6", ink: "#285c50" },
-  3: { label: "Cloudy", icon: "cloud", tone: "#dbe0df", ink: "#3e4b48" },
-  45: { label: "Fog", icon: "cloud-fog", tone: "#e2ded4", ink: "#4c504b" },
-  48: { label: "Rime fog", icon: "cloud-fog", tone: "#e2ded4", ink: "#4c504b" },
-  51: { label: "Light drizzle", icon: "cloud-drizzle", tone: "#d6e9ea", ink: "#2f6170" },
-  53: { label: "Drizzle", icon: "cloud-drizzle", tone: "#d6e9ea", ink: "#2f6170" },
-  55: { label: "Heavy drizzle", icon: "cloud-drizzle", tone: "#d6e9ea", ink: "#2f6170" },
-  56: { label: "Freezing drizzle", icon: "cloud-drizzle", tone: "#d9eef4", ink: "#2f6170" },
-  57: { label: "Freezing drizzle", icon: "cloud-drizzle", tone: "#d9eef4", ink: "#2f6170" },
-  61: { label: "Light rain", icon: "cloud-rain", tone: "#d4e5ef", ink: "#245a75" },
-  63: { label: "Rain", icon: "cloud-rain", tone: "#d4e5ef", ink: "#245a75" },
-  65: { label: "Heavy rain", icon: "cloud-rain", tone: "#c7ddeb", ink: "#245a75" },
-  66: { label: "Freezing rain", icon: "cloud-rain", tone: "#d9eef4", ink: "#245a75" },
-  67: { label: "Freezing rain", icon: "cloud-rain", tone: "#d9eef4", ink: "#245a75" },
-  71: { label: "Light snow", icon: "cloud-snow", tone: "#eef3f1", ink: "#53636a" },
-  73: { label: "Snow", icon: "cloud-snow", tone: "#eef3f1", ink: "#53636a" },
-  75: { label: "Heavy snow", icon: "cloud-snow", tone: "#eef3f1", ink: "#53636a" },
-  77: { label: "Snow grains", icon: "cloud-snow", tone: "#eef3f1", ink: "#53636a" },
-  80: { label: "Light showers", icon: "cloud-rain", tone: "#d4e5ef", ink: "#245a75" },
-  81: { label: "Showers", icon: "cloud-rain", tone: "#d4e5ef", ink: "#245a75" },
-  82: { label: "Heavy showers", icon: "cloud-rain", tone: "#c7ddeb", ink: "#245a75" },
-  85: { label: "Snow showers", icon: "cloud-snow", tone: "#eef3f1", ink: "#53636a" },
-  86: { label: "Snow showers", icon: "cloud-snow", tone: "#eef3f1", ink: "#53636a" },
-  95: { label: "Thunderstorm", icon: "cloud-lightning", tone: "#ded9ed", ink: "#4e416f" },
-  96: { label: "Storm with hail", icon: "cloud-lightning", tone: "#ded9ed", ink: "#4e416f" },
-  99: { label: "Storm with hail", icon: "cloud-lightning", tone: "#ded9ed", ink: "#4e416f" },
+  0: {
+    label: "Clear sky",
+    nightLabel: "Clear night",
+    dayIcon: "clear-day",
+    nightIcon: "clear-night",
+    tone: "#f8de9c",
+    ink: "#6d4b00",
+    nightTone: "#ded9ed",
+    nightInk: "#4e416f",
+  },
+  1: {
+    label: "Mostly clear",
+    dayIcon: "mostly-clear-day",
+    nightIcon: "mostly-clear-night",
+    tone: "#f8de9c",
+    ink: "#6d4b00",
+    nightTone: "#ded9ed",
+    nightInk: "#4e416f",
+  },
+  2: {
+    label: "Partly cloudy",
+    dayIcon: "partly-cloudy-day",
+    nightIcon: "partly-cloudy-night",
+    tone: "#dceee6",
+    ink: "#285c50",
+    nightTone: "#ded9ed",
+    nightInk: "#4e416f",
+  },
+  3: {
+    label: "Overcast",
+    dayIcon: "overcast-day",
+    nightIcon: "overcast-night",
+    tone: "#dbe0df",
+    ink: "#3e4b48",
+  },
+  45: {
+    label: "Fog",
+    dayIcon: "fog-day",
+    nightIcon: "fog-night",
+    tone: "#e2ded4",
+    ink: "#4c504b",
+  },
+  48: {
+    label: "Rime fog",
+    dayIcon: "fog-day",
+    nightIcon: "fog-night",
+    tone: "#dfe9e9",
+    ink: "#4c504b",
+  },
+  51: { label: "Light drizzle", icon: "drizzle", tone: "#d6e9ea", ink: "#2f6170" },
+  53: { label: "Drizzle", icon: "drizzle", tone: "#d6e9ea", ink: "#2f6170" },
+  55: { label: "Heavy drizzle", icon: "drizzle", tone: "#d6e9ea", ink: "#2f6170" },
+  56: {
+    label: "Freezing drizzle",
+    icon: "overcast-sleet",
+    tone: "#d9eef4",
+    ink: "#2f6170",
+  },
+  57: {
+    label: "Freezing drizzle",
+    icon: "overcast-sleet",
+    tone: "#d9eef4",
+    ink: "#2f6170",
+  },
+  61: { label: "Light rain", icon: "rain", tone: "#d4e5ef", ink: "#245a75" },
+  63: { label: "Rain", icon: "rain", tone: "#d4e5ef", ink: "#245a75" },
+  65: {
+    label: "Heavy rain",
+    icon: "overcast-rain",
+    tone: "#c7ddeb",
+    ink: "#245a75",
+  },
+  66: {
+    label: "Freezing rain",
+    icon: "overcast-sleet",
+    tone: "#d9eef4",
+    ink: "#245a75",
+  },
+  67: {
+    label: "Freezing rain",
+    icon: "overcast-sleet",
+    tone: "#d9eef4",
+    ink: "#245a75",
+  },
+  71: { label: "Light snow", icon: "snow", tone: "#eef3f1", ink: "#53636a" },
+  73: { label: "Snow", icon: "snow", tone: "#eef3f1", ink: "#53636a" },
+  75: { label: "Heavy snow", icon: "snow", tone: "#eef3f1", ink: "#53636a" },
+  77: {
+    label: "Snow grains",
+    icon: "snowflake",
+    tone: "#eef3f1",
+    ink: "#53636a",
+  },
+  80: {
+    label: "Light showers",
+    dayIcon: "partly-cloudy-day-rain",
+    nightIcon: "partly-cloudy-night-rain",
+    tone: "#d4e5ef",
+    ink: "#245a75",
+  },
+  81: {
+    label: "Showers",
+    dayIcon: "partly-cloudy-day-rain",
+    nightIcon: "partly-cloudy-night-rain",
+    tone: "#d4e5ef",
+    ink: "#245a75",
+  },
+  82: {
+    label: "Heavy showers",
+    dayIcon: "partly-cloudy-day-rain",
+    nightIcon: "partly-cloudy-night-rain",
+    tone: "#c7ddeb",
+    ink: "#245a75",
+  },
+  85: {
+    label: "Snow showers",
+    dayIcon: "partly-cloudy-day-snow",
+    nightIcon: "partly-cloudy-night-snow",
+    tone: "#eef3f1",
+    ink: "#53636a",
+  },
+  86: {
+    label: "Snow showers",
+    dayIcon: "partly-cloudy-day-snow",
+    nightIcon: "partly-cloudy-night-snow",
+    tone: "#eef3f1",
+    ink: "#53636a",
+  },
+  95: {
+    label: "Thunderstorm",
+    dayIcon: "thunderstorms-day-rain",
+    nightIcon: "thunderstorms-night-rain",
+    tone: "#ded9ed",
+    ink: "#4e416f",
+  },
+  96: {
+    label: "Storm with hail",
+    dayIcon: "thunderstorms-day-hail",
+    nightIcon: "thunderstorms-night-hail",
+    tone: "#ded9ed",
+    ink: "#4e416f",
+  },
+  99: {
+    label: "Storm with hail",
+    dayIcon: "thunderstorms-day-hail",
+    nightIcon: "thunderstorms-night-hail",
+    tone: "#ded9ed",
+    ink: "#4e416f",
+  },
 };
 
 const compassPoints = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
@@ -124,6 +245,8 @@ let locationSearchTimer;
 let locationSearchAbortController;
 let sliderTimestampTimer;
 let buienradarPreloadTimer;
+let weatherData;
+let activeRadarDate;
 let activeMobileView = "rain";
 let selectedLocation = loadStoredLocation() || DEFAULT_LOCATION;
 let refreshTimer;
@@ -517,10 +640,11 @@ async function loadWeather() {
       "weather_code",
       "temperature_2m_max",
       "temperature_2m_min",
-      "precipitation_sum",
+      "precipitation_probability_max",
       "wind_speed_10m_max",
       "wind_direction_10m_dominant",
     ].join(","),
+    hourly: ["temperature_2m", "wind_speed_10m", "wind_direction_10m"].join(","),
     forecast_days: "6",
     timezone: selectedLocation.timezone,
     timeformat: "unixtime",
@@ -544,32 +668,114 @@ async function loadWeather() {
 }
 
 function renderWeather(data) {
+  weatherData = data;
   const current = data.current;
   const daily = data.daily;
   const condition = getCondition(current.weather_code, current.is_day);
-  const windDirection = current.wind_direction_10m;
-  const windSpeed = Math.round(current.wind_speed_10m);
-  const beaufort = kmhToBeaufort(windSpeed);
-  const downwindDirection = (windDirection + 180) % 360;
 
-  elements.currentTemp.textContent = formatTemperature(current.temperature_2m);
   elements.conditionLabel.textContent = condition.label;
-  renderConditionIcon(condition.icon);
+  renderConditionIcon(condition);
   elements.maxTemp.textContent = formatOptionalTemperature(daily.temperature_2m_max?.[0]);
   elements.minTemp.textContent = formatOptionalTemperature(daily.temperature_2m_min?.[0]);
-  elements.rainTotal.textContent = formatOptionalRain(daily.precipitation_sum?.[0]);
-  elements.windText.textContent = `${degreesToCompass(windDirection)} ${beaufort}`;
-  elements.windText.title = `${windSpeed} km/h, blowing toward ${degreesToCompass(downwindDirection)}`;
-  elements.windArrow.style.transform = `rotate(${downwindDirection}deg)`;
-  elements.windArrow.title = `Blowing toward ${degreesToCompass(downwindDirection)}`;
+  elements.rainTotal.textContent = formatOptionalRainChance(daily.precipitation_probability_max?.[0]);
   elements.updatedAt.textContent = `Checked ${formatClock(new Date())}`;
   elements.updatedAt.title = `Weather observation ${formatTime(current.time)}`;
   elements.updatedAt.classList.remove("error");
 
-  const mark = document.querySelector(".condition-mark");
-  mark.style.background = condition.tone;
-  mark.style.color = condition.ink;
   renderFiveDayForecast(daily);
+  renderTimedWeather(getActiveRadarDate() || new Date(current.time * 1000));
+}
+
+function renderTimedWeather(date) {
+  if (!weatherData) {
+    return;
+  }
+
+  const current = weatherData.current;
+  const currentSnapshot = {
+    temperature: current.temperature_2m,
+    windDirection: current.wind_direction_10m,
+    windSpeed: current.wind_speed_10m,
+    time: current.time,
+  };
+  const currentDate = new Date(current.time * 1000);
+  const isCurrentTime = !date || Math.abs(date - currentDate) < 30 * 60 * 1000;
+  const snapshot = isCurrentTime ? currentSnapshot : getHourlyWeatherSnapshot(date, weatherData.hourly) || currentSnapshot;
+
+  renderTemperatureAndWind(snapshot);
+}
+
+function getHourlyWeatherSnapshot(date, hourly) {
+  if (!date || !hourly?.time?.length) {
+    return undefined;
+  }
+
+  const index = getClosestTimeIndex(hourly.time, date.getTime() / 1000);
+  if (index < 0) {
+    return undefined;
+  }
+
+  return {
+    temperature: hourly.temperature_2m?.[index],
+    windDirection: hourly.wind_direction_10m?.[index],
+    windSpeed: hourly.wind_speed_10m?.[index],
+    time: hourly.time[index],
+  };
+}
+
+function getClosestTimeIndex(times, targetTime) {
+  if (!times?.length || !Number.isFinite(targetTime)) {
+    return -1;
+  }
+
+  let closestIndex = 0;
+  let closestDistance = Math.abs(times[0] - targetTime);
+
+  for (let index = 1; index < times.length; index += 1) {
+    const distance = Math.abs(times[index] - targetTime);
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestIndex = index;
+    }
+  }
+
+  return closestIndex;
+}
+
+function renderTemperatureAndWind({ temperature, windDirection, windSpeed, time }) {
+  elements.currentTemp.textContent = formatOptionalTemperature(temperature);
+  elements.currentTemp.title = time ? `Forecast for ${formatTime(time)}` : "";
+
+  if (!Number.isFinite(windDirection) || !Number.isFinite(windSpeed)) {
+    elements.windText.textContent = "--";
+    elements.windText.title = "";
+    elements.windArrow.style.transform = "";
+    elements.windArrow.title = "";
+    return;
+  }
+
+  const roundedWindSpeed = Math.round(windSpeed);
+  const beaufort = kmhToBeaufort(roundedWindSpeed);
+  const downwindDirection = (windDirection + 180) % 360;
+  const timeLabel = time ? `, forecast for ${formatTime(time)}` : "";
+
+  elements.windText.textContent = `${degreesToCompass(windDirection)} ${beaufort}`;
+  elements.windText.title = `${roundedWindSpeed} km/h, blowing toward ${degreesToCompass(downwindDirection)}${timeLabel}`;
+  elements.windArrow.style.transform = `rotate(${downwindDirection}deg)`;
+  elements.windArrow.title = `Blowing toward ${degreesToCompass(downwindDirection)}${timeLabel}`;
+}
+
+function setActiveRadarDate(date) {
+  activeRadarDate = date;
+  renderTimedWeather(date);
+}
+
+function getActiveRadarDate() {
+  if (activeRadarDate) {
+    return activeRadarDate;
+  }
+
+  return getRadarDateForSlider(Number(elements.radarSlider.value) || 0);
 }
 
 function renderFiveDayForecast(daily) {
@@ -580,10 +786,6 @@ function renderFiveDayForecast(daily) {
   }
 
   elements.forecastBody.replaceChildren(...days.map(createForecastRow));
-
-  if (window.lucide) {
-    window.lucide.createIcons();
-  }
 }
 
 function buildFiveDayForecast(daily) {
@@ -602,7 +804,7 @@ function buildFiveDayForecast(daily) {
       condition,
       max: formatOptionalTemperature(daily.temperature_2m_max?.[index]),
       min: formatOptionalTemperature(daily.temperature_2m_min?.[index]),
-      rain: formatOptionalRain(daily.precipitation_sum?.[index]),
+      rain: formatOptionalRainChance(daily.precipitation_probability_max?.[index]),
       wind: formatOptionalWind(windDirection, windSpeed),
     };
   });
@@ -633,47 +835,60 @@ function createCell(text, className) {
 function createIconCell(condition) {
   const cell = document.createElement("td");
   const mark = document.createElement("span");
-  const icon = document.createElement("i");
+  const icon = createWeatherIcon(condition, "forecast-weather-icon");
   cell.className = "forecast-sky-cell";
+  cell.title = condition.label;
+  cell.setAttribute("aria-label", condition.label);
   mark.className = "forecast-condition-mark";
-  mark.style.background = condition.tone;
-  mark.style.color = condition.ink;
   mark.title = condition.label;
-  mark.setAttribute("aria-label", condition.label);
-  mark.setAttribute("role", "img");
-  icon.dataset.lucide = condition.icon;
-  icon.setAttribute("aria-hidden", "true");
+  mark.setAttribute("aria-hidden", "true");
   mark.appendChild(icon);
   cell.appendChild(mark);
   return cell;
 }
 
-function renderConditionIcon(icon) {
+function renderConditionIcon(condition) {
   const mark = document.querySelector(".condition-mark");
-  const iconElement = document.createElement("i");
+  const iconElement = createWeatherIcon(condition, "condition-icon", "eager");
   iconElement.id = "conditionIcon";
-  iconElement.dataset.lucide = icon;
-  iconElement.setAttribute("aria-hidden", "true");
+  mark.title = condition.label;
   mark.replaceChildren(iconElement);
+}
 
-  if (window.lucide) {
-    window.lucide.createIcons();
-  }
+function createWeatherIcon(condition, className, loading = "lazy") {
+  const icon = document.createElement("img");
+  icon.className = `weather-icon ${className}`;
+  icon.src = `${weatherIconBasePath}${condition.icon}.svg`;
+  icon.alt = "";
+  icon.width = 64;
+  icon.height = 64;
+  icon.decoding = "async";
+  icon.loading = loading;
+  icon.setAttribute("aria-hidden", "true");
+  return icon;
 }
 
 function getCondition(code, isDay) {
-  const fallback = { label: "Mixed conditions", icon: "cloud-sun", tone: "#dceee6", ink: "#285c50" };
+  const fallback = {
+    label: "Mixed conditions",
+    dayIcon: "partly-cloudy-day",
+    nightIcon: "partly-cloudy-night",
+    tone: "#dceee6",
+    ink: "#285c50",
+    nightTone: "#ded9ed",
+    nightInk: "#4e416f",
+  };
   const condition = weatherCodes[code] || fallback;
+  const dayTime = isDay !== 0 && isDay !== false;
+  const icon = dayTime ? condition.dayIcon || condition.icon : condition.nightIcon || condition.dayIcon || condition.icon;
 
-  if (!isDay && condition.icon === "sun") {
-    return { ...condition, icon: "moon", label: "Clear night", tone: "#ded9ed", ink: "#4e416f" };
-  }
-
-  if (!isDay && condition.icon === "cloud-sun") {
-    return { ...condition, icon: "cloud-moon", tone: "#ded9ed", ink: "#4e416f" };
-  }
-
-  return condition;
+  return {
+    ...condition,
+    icon,
+    label: !dayTime && condition.nightLabel ? condition.nightLabel : condition.label,
+    tone: !dayTime && condition.nightTone ? condition.nightTone : condition.tone,
+    ink: !dayTime && condition.nightInk ? condition.nightInk : condition.ink,
+  };
 }
 
 function initMap() {
@@ -988,6 +1203,7 @@ function disableRadar(message) {
   clearLibreWxrRadar();
   clearBuienradarRadar();
   radarFrames = [];
+  setActiveRadarDate(undefined);
   elements.radarSlider.disabled = true;
   elements.radarSlider.max = "0";
   elements.radarSlider.value = "0";
@@ -1029,11 +1245,13 @@ function setLibreWxrRadarPosition(value) {
   }
 
   const displayTime = interpolateUnixTime(lowerFrame.time, upperFrame.time, progress);
-  const label = formatUnixTime(displayTime);
+  const displayDate = new Date(displayTime * 1000);
+  const label = formatClock(displayDate);
   elements.radarTime.textContent = label;
   elements.rainForecastBadge.textContent = label;
   elements.radarSlider.setAttribute("aria-valuetext", label);
   elements.radarTime.classList.remove("error");
+  setActiveRadarDate(displayDate);
 }
 
 function handleRadarSliderInput(value) {
@@ -1083,6 +1301,11 @@ function setBuienradarFramePosition(value) {
   elements.radarSlider.value = String(Math.round(framePosition * 100));
   elements.radarSlider.setAttribute("aria-valuetext", label);
   elements.radarTime.classList.remove("error");
+  setActiveRadarDate(frameDate);
+}
+
+function getRadarDateForSlider(value) {
+  return getBuienradarDateForSlider(value) || getLibreWxrDateForSlider(value);
 }
 
 function getRadarTimeRange() {
@@ -1571,8 +1794,8 @@ function formatOptionalTemperature(value) {
   return Number.isFinite(value) ? formatTemperature(value) : "--°";
 }
 
-function formatOptionalRain(value) {
-  return Number.isFinite(value) ? `${Math.round(value)} mm` : "-- mm";
+function formatOptionalRainChance(value) {
+  return Number.isFinite(value) ? `${Math.round(value)}%` : "--%";
 }
 
 function formatOptionalWind(direction, speed) {
@@ -1619,10 +1842,6 @@ function formatClock(date, timezone = selectedLocation.timezone) {
       timeZone: DEFAULT_LOCATION.timezone,
     }).format(date);
   }
-}
-
-function formatUnixTime(value) {
-  return formatClock(new Date(value * 1000));
 }
 
 function degreesToCompass(degrees) {

@@ -188,14 +188,19 @@ input {
   height: 34px;
   display: inline-grid;
   place-items: center;
+  padding: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
+  -webkit-appearance: none;
+  appearance: none;
   background: #ffffff;
   color: var(--ink);
+  line-height: 0;
   cursor: pointer;
 }
 
 .location-button svg {
+  display: block;
   width: 17px;
   height: 17px;
 }
@@ -261,10 +266,14 @@ h1 {
   flex: 0 0 44px;
   display: inline-grid;
   place-items: center;
+  padding: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
+  -webkit-appearance: none;
+  appearance: none;
   background: #ffffff;
   color: var(--ink);
+  line-height: 0;
   cursor: pointer;
   transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
 }
@@ -278,6 +287,7 @@ h1 {
 }
 
 .icon-button svg {
+  display: block;
   width: 20px;
   height: 20px;
 }
@@ -314,32 +324,72 @@ h1 {
 
 .current {
   display: grid;
-  grid-template-columns: 74px minmax(0, 1fr);
+  grid-template-columns: 88px minmax(0, 1fr);
   align-items: center;
   gap: 14px;
 }
 
 .condition-mark {
-  width: 74px;
-  height: 74px;
+  width: 88px;
+  height: 104px;
   display: grid;
   place-items: center;
-  border-radius: 8px;
-  background: #f8de9c;
-  color: #6d4b00;
 }
 
-.condition-mark svg {
-  width: 42px;
-  height: 42px;
-  stroke-width: 1.65;
+.weather-icon {
+  display: block;
+  object-fit: contain;
+}
+
+.condition-icon {
+  width: 96px;
+  height: 96px;
+  transform: translateX(-8px);
+}
+
+.current-details {
+  min-width: 0;
+}
+
+.current-readout {
+  min-width: 0;
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(max-content, 1fr) minmax(74px, 38%);
+  align-items: flex-end;
+  gap: 14px;
 }
 
 .temp {
+  min-width: max-content;
   font-size: 3rem;
   font-weight: 820;
   line-height: 0.95;
   letter-spacing: 0;
+}
+
+.current-wind {
+  display: grid;
+  gap: 2px;
+  justify-items: start;
+  margin-bottom: 2px;
+  text-align: left;
+}
+
+.current-wind-label {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.current-wind .wind-value {
+  min-height: 1.5rem;
+  font-size: clamp(1.18rem, 3.2vw, 1.46rem);
+  font-weight: 800;
+  line-height: 1.15;
 }
 
 .condition {
@@ -377,7 +427,7 @@ h1 {
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -779,6 +829,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .forecast-table th {
+  width: calc(100% / 6);
   padding: 0 5px 7px;
   color: var(--muted);
   font-size: 0.68rem;
@@ -798,33 +849,20 @@ input[type="range"]::-moz-range-thumb {
   white-space: nowrap;
 }
 
-.forecast-table th:nth-child(1),
-.forecast-table td:nth-child(1) {
-  width: 2.7rem;
-}
-
-.forecast-table th:nth-child(2),
-.forecast-table td:nth-child(2) {
-  width: 3.2rem;
-}
-
-.forecast-table th:nth-child(6),
-.forecast-table td:nth-child(6) {
-  width: 5.2rem;
-}
-
 .forecast-condition-mark {
   width: 34px;
   height: 34px;
   display: inline-grid;
   place-items: center;
-  border-radius: 8px;
 }
 
-.forecast-condition-mark svg {
-  width: 21px;
-  height: 21px;
-  stroke-width: 1.75;
+.forecast-sky-cell {
+  text-align: left;
+}
+
+.forecast-weather-icon {
+  width: 30px;
+  height: 30px;
 }
 
 .forecast-empty {
@@ -1090,35 +1128,66 @@ input[type="range"]::-moz-range-thumb {
   }
 
   .current {
-    grid-template-columns: 58px minmax(0, 1fr);
-    gap: 10px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    column-gap: 6px;
+    row-gap: 3px;
+    align-items: end;
   }
 
   .condition-mark {
-    width: 58px;
-    height: 58px;
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    justify-self: start;
+    width: 72px;
+    height: 84px;
   }
 
-  .condition-mark svg {
-    width: 33px;
-    height: 33px;
+  .current-details,
+  .current-readout {
+    display: contents;
+  }
+
+  .condition-icon {
+    width: 78px;
+    height: 78px;
+    transform: translateX(-8px);
   }
 
   .temp {
+    grid-column: 1 / 3;
+    grid-row: 1;
+    align-self: end;
+    justify-self: start;
+    margin-left: 82px;
     font-size: 2.45rem;
   }
 
+  .current-wind {
+    grid-column: 3;
+    grid-row: 1;
+    align-self: end;
+    justify-self: start;
+  }
+
+  .current-wind-label {
+    font-size: 0.6rem;
+  }
+
+  .current-wind .wind-value {
+    font-size: clamp(1.34rem, 5.2vw, 1.5rem);
+  }
+
   .condition {
+    grid-column: 1 / 3;
+    grid-row: 2;
+    align-self: start;
+    margin-left: 82px;
     margin-top: 3px;
     font-size: 0.88rem;
   }
 
   .metrics {
-    grid-template-columns:
-      minmax(34px, 0.72fr)
-      minmax(34px, 0.72fr)
-      minmax(46px, 0.86fr)
-      minmax(88px, 1.58fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 6px;
   }
 
@@ -1143,14 +1212,14 @@ input[type="range"]::-moz-range-thumb {
   }
 
   .wind-arrow {
-    border-left-width: 4px;
-    border-right-width: 4px;
-    border-bottom-width: 13px;
+    border-left-width: 5px;
+    border-right-width: 5px;
+    border-bottom-width: 16px;
   }
 
   .radar-panel {
     min-height: 0;
-    padding: 0;
+    padding: 0 0 max(18px, env(safe-area-inset-bottom));
     grid-template-rows: minmax(180px, 1fr) auto auto;
     gap: 5px;
   }
@@ -1245,30 +1314,16 @@ input[type="range"]::-moz-range-thumb {
     font-size: 0.92rem;
   }
 
-  .forecast-table th:nth-child(1),
-  .forecast-table td:nth-child(1) {
-    width: 2.35rem;
-  }
-
-  .forecast-table th:nth-child(2),
-  .forecast-table td:nth-child(2) {
-    width: 2.85rem;
-  }
-
-  .forecast-table th:nth-child(6),
-  .forecast-table td:nth-child(6) {
-    width: 4.65rem;
-  }
-
   .forecast-condition-mark {
     width: 31px;
     height: 31px;
   }
 
-  .forecast-condition-mark svg {
-    width: 19px;
-    height: 19px;
+  .forecast-weather-icon {
+    width: 27px;
+    height: 27px;
   }
+
 }
 
 @media (max-width: 374px) {
@@ -1278,21 +1333,35 @@ input[type="range"]::-moz-range-thumb {
   }
 
   .current {
-    grid-template-columns: 52px minmax(0, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .condition-mark {
-    width: 52px;
-    height: 52px;
+    width: 66px;
+    height: 74px;
   }
 
-  .condition-mark svg {
-    width: 30px;
-    height: 30px;
+  .condition-icon {
+    width: 68px;
+    height: 68px;
+    transform: translateX(-6px);
   }
 
   .temp {
+    margin-left: 72px;
     font-size: 2.25rem;
+  }
+
+  .condition {
+    margin-left: 72px;
+  }
+
+  .current-wind {
+    margin-left: 6px;
+  }
+
+  .current-wind .wind-value {
+    font-size: 1.34rem;
   }
 
   .metrics {
@@ -1324,7 +1393,7 @@ input[type="range"]::-moz-range-thumb {
   .forecast-table td {
     padding-right: 2px;
     padding-left: 2px;
-    font-size: 0.86rem;
+    font-size: 0.84rem;
   }
 
   .forecast-table th {
@@ -1333,20 +1402,16 @@ input[type="range"]::-moz-range-thumb {
     font-size: 0.58rem;
   }
 
-  .forecast-table th:nth-child(1),
-  .forecast-table td:nth-child(1) {
-    width: 2.1rem;
+  .forecast-condition-mark {
+    width: 28px;
+    height: 28px;
   }
 
-  .forecast-table th:nth-child(2),
-  .forecast-table td:nth-child(2) {
-    width: 2.6rem;
+  .forecast-weather-icon {
+    width: 25px;
+    height: 25px;
   }
 
-  .forecast-table th:nth-child(6),
-  .forecast-table td:nth-child(6) {
-    width: 4.45rem;
-  }
 }
 
 @media (min-width: 760px) {
@@ -1396,18 +1461,19 @@ input[type="range"]::-moz-range-thumb {
   }
 
   .current {
-    grid-template-columns: 74px minmax(0, 1fr);
+    grid-template-columns: 88px minmax(0, 1fr);
     gap: 14px;
   }
 
   .condition-mark {
-    width: 74px;
-    height: 74px;
+    width: 88px;
+    height: 104px;
   }
 
-  .condition-mark svg {
-    width: 42px;
-    height: 42px;
+  .condition-icon {
+    width: 96px;
+    height: 96px;
+    transform: translateX(-8px);
   }
 
   .temp {
@@ -1419,7 +1485,7 @@ input[type="range"]::-moz-range-thumb {
   }
 
   .metrics {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
   }
 
@@ -1463,9 +1529,9 @@ input[type="range"]::-moz-range-thumb {
     height: 30px;
   }
 
-  .forecast-condition-mark svg {
-    width: 18px;
-    height: 18px;
+  .forecast-weather-icon {
+    width: 27px;
+    height: 27px;
   }
 
   .radar-panel {

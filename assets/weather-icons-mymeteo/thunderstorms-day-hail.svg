@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>Storm with hail</title>
+  <g fill="none" stroke="#f5a400" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="22" cy="20" r="12"/>
+    <line x1="39" y1="20" x2="44" y2="20"/>
+    <line x1="34" y1="32" x2="37.6" y2="35.6"/>
+    <line x1="22" y1="37" x2="22" y2="42"/>
+    <line x1="10" y1="32" x2="6.4" y2="35.6"/>
+    <line x1="5" y1="20" x2="0" y2="20"/>
+    <line x1="10" y1="8" x2="6.4" y2="4.4"/>
+    <line x1="22" y1="3" x2="22" y2="-2"/>
+    <line x1="34" y1="8" x2="37.6" y2="4.4"/>
+  </g>
+  <path d="M17 43h29a9 9 0 0 0 1-18 13 13 0 0 0-24-4 10 10 0 0 0-6 22Z" fill="#fff" stroke="#9ea3a5" stroke-width="4.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M34 39L27.7 50.7L34.9 50.7L31.3 59.7L43.9 45.3L36.7 45.3L41.2 39Z" fill="#f2a600"/>
+  <g fill="#238fc7">
+    <circle cx="25" cy="54" r="3"/>
+    <circle cx="45" cy="54" r="3"/>
+  </g>
+</svg>

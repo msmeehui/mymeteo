@@ -29,6 +29,26 @@ Then visit:
 http://127.0.0.1:4173/
 ```
 
+## Add MyMeteo To Your Phone
+
+You can add MyMeteo to your phone's home screen so it opens like an app.
+
+### iPhone Or iPad
+
+1. Open MyMeteo in Safari.
+2. Tap the Share button.
+3. Tap Add to Home Screen.
+4. Keep the name "MyMeteo" or choose your own name, then tap Add.
+
+### Android
+
+1. Open MyMeteo in Chrome.
+2. Tap the More menu.
+3. Tap Install app or Add to Home screen.
+4. Confirm by tapping Install or Add.
+
+After that, you can open MyMeteo from the icon on your home screen.
+
 ## Data Sources
 
 No API key is required. The app uses public weather and map sources:
@@ -39,6 +59,7 @@ No API key is required. The app uses public weather and map sources:
 - Radar frame decoding: [gifuct-js](https://github.com/matt-way/gifuct-js) through [esm.sh](https://esm.sh/)
 - Fallback radar tiles: [LibreWXR](https://librewxr.net/)
 - Map tiles: [OpenStreetMap](https://www.openstreetmap.org/) through [Leaflet](https://leafletjs.com/)
+- Weather icons: custom MyMeteo SVG icons in `assets/weather-icons-mymeteo/`
 
 ## Notes
 
