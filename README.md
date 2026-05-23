@@ -4,7 +4,10 @@ MyMeteo is a small personal weather dashboard with location search, current-loca
 
 [Open MyMeteo](https://msmeehui.github.io/mymeteo/)
 
-<img src="assets/mymeteo-screenshot.png" alt="MyMeteo screenshot" width="320">
+<p>
+  <img src="assets/mymeteo-raintab.png" alt="MyMeteo rain radar tab" width="320">
+  <img src="assets/mymeteo-5daystab.png" alt="MyMeteo 5-day forecast tab" width="320">
+</p>
 
 ## Features
 

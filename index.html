@@ -27,7 +27,7 @@
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin=""
     />
-    <link rel="stylesheet" href="styles.css?v=20260522-12" />
+    <link rel="stylesheet" href="styles.css?v=20260523-7" />
   </head>
   <body>
     <main class="weather-app" aria-live="polite">
@@ -217,24 +217,145 @@
             </button>
           </form>
         </div>
-        <dl class="info-meta">
-          <dt>Creator:</dt>
-          <dd>marc.smeehuijzen@easytech.nl with ChatGPT 5.5</dd>
-          <dt>Last update:</dt>
-          <dd>May 22, 2026</dd>
-          <dt>Weather data:</dt>
-          <dd>Open-Meteo, Buienradar and LibreWXR</dd>
-          <dt>Map:</dt>
-          <dd>OpenStreetMap</dd>
-        </dl>
-        <figure class="info-photo">
-          <img
-            src="marc-rain.jpeg"
-            width="1360"
-            height="768"
-            alt="Person holding an umbrella in heavy rain"
-          />
-        </figure>
+        <div class="info-sections">
+          <details class="info-section">
+            <summary>
+              <span>Creator</span>
+              <span class="info-section-chevron" aria-hidden="true"></span>
+            </summary>
+            <div class="info-section-body">
+              <p>marc.smeehuijzen@easytech.nl with ChatGPT 5.5</p>
+              <figure class="info-photo">
+                <img
+                  src="marc-rain.jpeg"
+                  width="1360"
+                  height="768"
+                  alt="Person holding an umbrella in heavy rain"
+                />
+              </figure>
+            </div>
+          </details>
+
+          <details class="info-section">
+            <summary>
+              <span>Data Sources</span>
+              <span class="info-section-chevron" aria-hidden="true"></span>
+            </summary>
+            <div class="info-section-body">
+              <dl class="info-source-list">
+                <div>
+                  <dt>Forecast data:</dt>
+                  <dd>
+                    <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo Forecast API</a>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Location autocomplete:</dt>
+                  <dd>
+                    <a href="https://open-meteo.com/en/docs/geocoding-api" target="_blank" rel="noopener noreferrer">Open-Meteo Geocoding API</a>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Rain radar animation:</dt>
+                  <dd>
+                    <a href="https://www.buienradar.nl/" target="_blank" rel="noopener noreferrer">Buienradar</a>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Radar frame decoding:</dt>
+                  <dd>
+                    <a href="https://github.com/matt-way/gifuct-js" target="_blank" rel="noopener noreferrer">gifuct-js</a>
+                    through <a href="https://esm.sh/" target="_blank" rel="noopener noreferrer">esm.sh</a>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Fallback radar tiles:</dt>
+                  <dd>
+                    <a href="https://librewxr.net/" target="_blank" rel="noopener noreferrer">LibreWXR</a>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Map tiles:</dt>
+                  <dd>
+                    <a href="https://www.openstreetmap.org/" target="_blank" rel="noopener noreferrer">OpenStreetMap</a>
+                    through <a href="https://leafletjs.com/" target="_blank" rel="noopener noreferrer">Leaflet</a>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Weather icons:</dt>
+                  <dd>custom MyMeteo SVG icons in assets/weather-icons-mymeteo/</dd>
+                </div>
+              </dl>
+            </div>
+          </details>
+
+          <details class="info-section">
+            <summary>
+              <span>Make Shortcut</span>
+              <span class="info-section-chevron" aria-hidden="true"></span>
+            </summary>
+            <div class="info-section-body">
+              <p>Add MyMeteo to your phone's home screen so it opens like an app.</p>
+
+              <h3>iPhone or iPad</h3>
+              <ol>
+                <li>Open MyMeteo in Safari.</li>
+                <li>Tap the Share button.</li>
+                <li>Tap Add to Home Screen.</li>
+                <li>Keep the name "MyMeteo" or choose your own name, then tap Add.</li>
+              </ol>
+
+              <h3>Android</h3>
+              <ol>
+                <li>Open MyMeteo in Chrome.</li>
+                <li>Tap the More menu.</li>
+                <li>Tap Install app or Add to Home screen.</li>
+                <li>Confirm by tapping Install or Add.</li>
+              </ol>
+
+              <p>After that, you can open MyMeteo from the icon on your home screen.</p>
+            </div>
+          </details>
+
+          <details class="info-section">
+            <summary>
+              <span>Changelog</span>
+              <span class="info-section-chevron" aria-hidden="true"></span>
+            </summary>
+            <div class="info-section-body changelog">
+              <h3>23 May 2026</h3>
+              <ul>
+                <li>Added hourly forecasts inside the 5-day forecast.</li>
+                <li>Changed the 5-day forecast so it starts with today instead of tomorrow.</li>
+                <li>Expanded the About modal with extra app information, a changelog, and instructions for adding MyMeteo to your phone's home screen.</li>
+              </ul>
+
+              <h3>22 May 2026</h3>
+              <ul>
+                <li>Switched to custom weather icons that are more specific, easier to recognize, and better suited to the app's design.</li>
+                <li>Changed the rain forecast from millimeters to percentage chance.</li>
+                <li>Made the temperature and wind information respond to the selected time on the rain radar slider.</li>
+              </ul>
+
+              <h3>15 May 2026</h3>
+              <ul>
+                <li>Made switching between the Netherlands 3-hour and 8-hour rain radar views faster by preloading the 8-hour view when the default 3-hour view is loaded.</li>
+              </ul>
+
+              <h3>11 May 2026</h3>
+              <ul>
+                <li>Added 8 hours of rain radar data for the Netherlands, with a choice between 3-hour and 8-hour views.</li>
+                <li>Made the 1-hour rain radar animation smoother for locations outside the Netherlands.</li>
+              </ul>
+
+              <h3>5 May 2026</h3>
+              <ul>
+                <li>Launched the first version of MyMeteo.</li>
+                <li>Initial functionality included location search, weather icons, current/max/min temperature in Celsius, rain in millimeters, wind speed in Beaufort, wind direction, an animated rain radar map with a 3-hour time slider, and a 5-day forecast.</li>
+              </ul>
+            </div>
+          </details>
+        </div>
       </div>
     </dialog>
 
@@ -244,6 +365,6 @@
       crossorigin=""
     ></script>
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-    <script src="app.js?v=20260522-5"></script>
+    <script src="app.js?v=20260523-5"></script>
   </body>
 </html>

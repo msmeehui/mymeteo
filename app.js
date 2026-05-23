@@ -248,6 +248,7 @@ let buienradarPreloadTimer;
 let weatherData;
 let activeRadarDate;
 let activeMobileView = "rain";
+let expandedForecastDayKey;
 let selectedLocation = loadStoredLocation() || DEFAULT_LOCATION;
 let refreshTimer;
 
@@ -310,6 +311,7 @@ function bindEvents() {
         elements.infoDialog.close();
       }
     });
+    bindInfoAccordion();
   }
   elements.radarSlider.addEventListener("input", (event) => {
     handleRadarSliderInput(Number(event.target.value));
@@ -347,6 +349,23 @@ function openInfoDialog() {
   }
 
   elements.infoDialog.setAttribute("open", "");
+}
+
+function bindInfoAccordion() {
+  const sections = Array.from(elements.infoDialog.querySelectorAll(".info-section"));
+  sections.forEach((section) => {
+    section.addEventListener("toggle", () => {
+      if (!section.open) {
+        return;
+      }
+
+      sections.forEach((otherSection) => {
+        if (otherSection !== section) {
+          otherSection.open = false;
+        }
+      });
+    });
+  });
 }
 
 function setMobileView(view) {
@@ -644,8 +663,15 @@ async function loadWeather() {
       "wind_speed_10m_max",
       "wind_direction_10m_dominant",
     ].join(","),
-    hourly: ["temperature_2m", "wind_speed_10m", "wind_direction_10m"].join(","),
-    forecast_days: "6",
+    hourly: [
+      "temperature_2m",
+      "weather_code",
+      "precipitation_probability",
+      "wind_speed_10m",
+      "wind_direction_10m",
+      "is_day",
+    ].join(","),
+    forecast_days: "5",
     timezone: selectedLocation.timezone,
     timeformat: "unixtime",
     wind_speed_unit: "kmh",
@@ -671,10 +697,7 @@ function renderWeather(data) {
   weatherData = data;
   const current = data.current;
   const daily = data.daily;
-  const condition = getCondition(current.weather_code, current.is_day);
 
-  elements.conditionLabel.textContent = condition.label;
-  renderConditionIcon(condition);
   elements.maxTemp.textContent = formatOptionalTemperature(daily.temperature_2m_max?.[0]);
   elements.minTemp.textContent = formatOptionalTemperature(daily.temperature_2m_min?.[0]);
   elements.rainTotal.textContent = formatOptionalRainChance(daily.precipitation_probability_max?.[0]);
@@ -682,7 +705,7 @@ function renderWeather(data) {
   elements.updatedAt.title = `Weather observation ${formatTime(current.time)}`;
   elements.updatedAt.classList.remove("error");
 
-  renderFiveDayForecast(daily);
+  renderFiveDayForecast(data);
   renderTimedWeather(getActiveRadarDate() || new Date(current.time * 1000));
 }
 
@@ -693,6 +716,7 @@ function renderTimedWeather(date) {
 
   const current = weatherData.current;
   const currentSnapshot = {
+    condition: getCondition(current.weather_code, current.is_day),
     temperature: current.temperature_2m,
     windDirection: current.wind_direction_10m,
     windSpeed: current.wind_speed_10m,
@@ -702,6 +726,7 @@ function renderTimedWeather(date) {
   const isCurrentTime = !date || Math.abs(date - currentDate) < 30 * 60 * 1000;
   const snapshot = isCurrentTime ? currentSnapshot : getHourlyWeatherSnapshot(date, weatherData.hourly) || currentSnapshot;
 
+  renderTimedCondition(snapshot.condition);
   renderTemperatureAndWind(snapshot);
 }
 
@@ -716,6 +741,7 @@ function getHourlyWeatherSnapshot(date, hourly) {
   }
 
   return {
+    condition: getCondition(hourly.weather_code?.[index], hourly.is_day?.[index] ?? isForecastHourDaytime(hourly.time[index])),
     temperature: hourly.temperature_2m?.[index],
     windDirection: hourly.wind_direction_10m?.[index],
     windSpeed: hourly.wind_speed_10m?.[index],
@@ -740,6 +766,11 @@ function getClosestTimeIndex(times, targetTime) {
   }
 
   return closestIndex;
+}
+
+function renderTimedCondition(condition) {
+  elements.conditionLabel.textContent = condition.label;
+  renderConditionIcon(condition);
 }
 
 function renderTemperatureAndWind({ temperature, windDirection, windSpeed, time }) {
@@ -778,42 +809,74 @@ function getActiveRadarDate() {
   return getRadarDateForSlider(Number(elements.radarSlider.value) || 0);
 }
 
-function renderFiveDayForecast(daily) {
-  const days = buildFiveDayForecast(daily);
+function renderFiveDayForecast(data) {
+  const days = buildFiveDayForecast(data);
   if (!days.length) {
+    expandedForecastDayKey = undefined;
     elements.forecastBody.innerHTML = '<tr><td class="forecast-empty" colspan="6">Forecast unavailable</td></tr>';
     return;
   }
 
-  elements.forecastBody.replaceChildren(...days.map(createForecastRow));
+  if (expandedForecastDayKey && !days.some((day) => day.key === expandedForecastDayKey)) {
+    expandedForecastDayKey = undefined;
+  }
+
+  const rows = days.flatMap((day) => {
+    const isExpanded = day.key === expandedForecastDayKey;
+    const dayRow = createForecastRow(day, isExpanded);
+    return isExpanded ? [dayRow, createHourlyForecastRow(day)] : [dayRow];
+  });
+
+  elements.forecastBody.replaceChildren(...rows);
 }
 
-function buildFiveDayForecast(daily) {
+function buildFiveDayForecast(data) {
+  const daily = data?.daily;
+  const hourly = data?.hourly;
+
   if (!daily?.time?.length) {
     return [];
   }
 
-  return daily.time.slice(1, 6).map((time, offset) => {
-    const index = offset + 1;
+  const currentTime = data?.current?.time ?? Date.now() / 1000;
+  const todayKey = formatDateKey(currentTime);
+  const currentHour = getDatePart(toForecastDate(currentTime), "hour") || 0;
+
+  return daily.time.slice(0, 5).map((time, index) => {
     const windSpeed = daily.wind_speed_10m_max?.[index];
     const windDirection = daily.wind_direction_10m_dominant?.[index];
     const condition = getCondition(daily.weather_code?.[index], true);
+    const key = formatDateKey(time);
+    const isToday = key === todayKey;
 
     return {
+      key,
       day: formatWeekday(time),
+      fullDay: formatWeekday(time, "long"),
       condition,
       max: formatOptionalTemperature(daily.temperature_2m_max?.[index]),
       min: formatOptionalTemperature(daily.temperature_2m_min?.[index]),
       rain: formatOptionalRainChance(daily.precipitation_probability_max?.[index]),
       wind: formatOptionalWind(windDirection, windSpeed),
+      hours: buildHourlyForecastForDay(hourly, key, {
+        currentHour,
+        isToday,
+      }),
     };
   });
 }
 
-function createForecastRow(day) {
+function createForecastRow(day, isExpanded) {
   const row = document.createElement("tr");
+  row.className = "forecast-day-row";
+  row.dataset.forecastDay = day.key;
+  row.title = `${isExpanded ? "Hide" : "Show"} hourly forecast for ${day.fullDay}`;
+  row.classList.toggle("is-expanded", isExpanded);
+  row.addEventListener("click", () => {
+    toggleForecastDay(day.key);
+  });
   row.append(
-    createCell(day.day, "forecast-day"),
+    createDayCell(day, isExpanded),
     createIconCell(day.condition),
     createCell(day.max, "temp-max"),
     createCell(day.min, "temp-min"),
@@ -821,6 +884,27 @@ function createForecastRow(day) {
     createCell(day.wind, "forecast-wind"),
   );
   return row;
+}
+
+function createDayCell(day, isExpanded) {
+  const cell = document.createElement("td");
+  const button = document.createElement("button");
+  const chevron = document.createElement("span");
+  const label = document.createElement("span");
+
+  cell.className = "forecast-day";
+  button.className = "forecast-day-button";
+  button.type = "button";
+  button.setAttribute("aria-expanded", String(isExpanded));
+  button.setAttribute("aria-controls", getForecastDetailsId(day.key));
+  button.setAttribute("aria-label", `${isExpanded ? "Hide" : "Show"} hourly forecast for ${day.fullDay}`);
+  chevron.className = "forecast-chevron";
+  chevron.setAttribute("aria-hidden", "true");
+  label.textContent = day.day;
+  button.append(chevron, label);
+  cell.appendChild(button);
+
+  return cell;
 }
 
 function createCell(text, className) {
@@ -845,6 +929,136 @@ function createIconCell(condition) {
   mark.appendChild(icon);
   cell.appendChild(mark);
   return cell;
+}
+
+function toggleForecastDay(dayKey) {
+  expandedForecastDayKey = expandedForecastDayKey === dayKey ? undefined : dayKey;
+  renderFiveDayForecast(weatherData);
+
+  const button = elements.forecastBody.querySelector(`[data-forecast-day="${dayKey}"] .forecast-day-button`);
+  button?.focus({ preventScroll: true });
+}
+
+function getForecastDetailsId(dayKey) {
+  return `forecast-hours-${dayKey}`;
+}
+
+function createHourlyForecastRow(day) {
+  const row = document.createElement("tr");
+  const cell = document.createElement("td");
+  const panel = document.createElement("div");
+  const grid = document.createElement("div");
+
+  row.className = "forecast-hourly-row";
+  row.id = getForecastDetailsId(day.key);
+  cell.className = "forecast-hourly-cell";
+  cell.colSpan = 6;
+  panel.className = "hourly-forecast";
+  panel.setAttribute("role", "region");
+  panel.setAttribute("aria-label", `Hourly forecast for ${day.fullDay}`);
+  grid.className = "hourly-grid";
+  grid.setAttribute("role", "table");
+  grid.setAttribute("aria-label", `Hourly forecast for ${day.fullDay}`);
+
+  if (day.hours.length) {
+    grid.appendChild(createHourlyHeaderRow());
+    day.hours.forEach((hour) => {
+      grid.appendChild(createHourlyDataRow(hour));
+    });
+    panel.appendChild(grid);
+  } else {
+    const empty = document.createElement("div");
+    empty.className = "hourly-empty";
+    empty.textContent = "Hourly forecast unavailable";
+    panel.appendChild(empty);
+  }
+
+  cell.appendChild(panel);
+  row.appendChild(cell);
+
+  return row;
+}
+
+function createHourlyHeaderRow() {
+  const row = document.createElement("div");
+  row.className = "hourly-row hourly-head-row";
+  row.setAttribute("role", "row");
+  row.append(
+    createHourlyTextCell("Time", "hourly-time", "columnheader"),
+    createHourlyTextCell("Sky", "hourly-sky", "columnheader"),
+    createHourlyTextCell("Temp", "hourly-temp", "columnheader"),
+    createHourlyTextCell("Rain", "hourly-rain", "columnheader"),
+    createHourlyTextCell("Wind", "hourly-wind", "columnheader"),
+  );
+  return row;
+}
+
+function createHourlyDataRow(hour) {
+  const row = document.createElement("div");
+  row.className = "hourly-row";
+  row.setAttribute("role", "row");
+  row.setAttribute("aria-label", `${hour.time}, ${hour.condition.label}, ${hour.temperature}, rain ${hour.rain}, wind ${hour.wind}`);
+  row.append(
+    createHourlyTextCell(hour.time, "hourly-time"),
+    createHourlyIconCell(hour.condition),
+    createHourlyTextCell(hour.temperature, "hourly-temp"),
+    createHourlyTextCell(hour.rain, "hourly-rain"),
+    createHourlyTextCell(hour.wind, "hourly-wind"),
+  );
+  return row;
+}
+
+function createHourlyTextCell(text, className, role = "cell") {
+  const cell = document.createElement("span");
+  cell.className = className;
+  cell.setAttribute("role", role);
+  cell.textContent = text;
+  return cell;
+}
+
+function createHourlyIconCell(condition) {
+  const cell = document.createElement("span");
+  const mark = document.createElement("span");
+  const icon = createWeatherIcon(condition, "hourly-weather-icon");
+
+  cell.className = "hourly-sky";
+  cell.setAttribute("role", "cell");
+  cell.setAttribute("aria-label", condition.label);
+  mark.className = "hourly-condition-mark";
+  mark.title = condition.label;
+  mark.setAttribute("aria-hidden", "true");
+  mark.appendChild(icon);
+  cell.appendChild(mark);
+
+  return cell;
+}
+
+function buildHourlyForecastForDay(hourly, dayKey, { currentHour, isToday } = {}) {
+  if (!hourly?.time?.length) {
+    return [];
+  }
+
+  return hourly.time
+    .map((time, index) => ({ time, index }))
+    .filter(({ time }) => formatDateKey(time) === dayKey)
+    .filter(({ time }) => !isToday || getDatePart(toForecastDate(time), "hour") >= currentHour)
+    .slice(0, 24)
+    .map(({ time, index }) => {
+      const isDay = hourly.is_day?.[index] ?? isForecastHourDaytime(time);
+      return {
+        time: formatTime(time),
+        condition: getCondition(hourly.weather_code?.[index], isDay),
+        temperature: formatOptionalTemperature(hourly.temperature_2m?.[index]),
+        rain: formatOptionalRainChance(hourly.precipitation_probability?.[index]),
+        wind: formatOptionalWind(hourly.wind_direction_10m?.[index], hourly.wind_speed_10m?.[index]),
+      };
+    });
+}
+
+function isForecastHourDaytime(time) {
+  const date = toForecastDate(time);
+  const hour = getDatePart(date, "hour");
+  return hour >= 6 && hour < 20;
 }
 
 function renderConditionIcon(condition) {
@@ -1806,26 +2020,83 @@ function formatOptionalWind(direction, speed) {
   return `${degreesToCompass(direction)} ${kmhToBeaufort(Math.round(speed))}`;
 }
 
-function formatWeekday(value) {
-  const date = typeof value === "number" ? new Date(value * 1000) : new Date(`${value}T12:00:00`);
+function formatWeekday(value, weekday = "short") {
+  const date = toForecastDate(value);
 
   try {
     return new Intl.DateTimeFormat("en-US", {
-      weekday: "short",
+      weekday,
       timeZone: selectedLocation.timezone,
     }).format(date);
   } catch (error) {
     return new Intl.DateTimeFormat("en-US", {
-      weekday: "short",
+      weekday,
       timeZone: DEFAULT_LOCATION.timezone,
     }).format(date);
   }
 }
 
 function formatTime(value) {
-  const date = typeof value === "number" ? new Date(value * 1000) : new Date(value);
+  const date = toForecastDate(value);
 
   return formatClock(date);
+}
+
+function toForecastDate(value) {
+  if (value instanceof Date) {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    return new Date(value * 1000);
+  }
+
+  if (typeof value === "string" && value.includes("T")) {
+    return new Date(value);
+  }
+
+  return new Date(`${value}T12:00:00`);
+}
+
+function formatDateKey(value, timezone = selectedLocation.timezone) {
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
+
+  const parts = getDateParts(toForecastDate(value), timezone);
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function getDatePart(date, part, timezone = selectedLocation.timezone) {
+  return Number(getDateParts(date, timezone)[part]);
+}
+
+function getDateParts(date, timezone = selectedLocation.timezone) {
+  try {
+    return getFormattedDateParts(date, timezone);
+  } catch (error) {
+    return getFormattedDateParts(date, DEFAULT_LOCATION.timezone);
+  }
+}
+
+function getFormattedDateParts(date, timezone) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+    month: "2-digit",
+    timeZone: timezone,
+    year: "numeric",
+  }).formatToParts(date);
+  const values = {};
+
+  parts.forEach((part) => {
+    if (part.type !== "literal") {
+      values[part.type] = part.value;
+    }
+  });
+
+  return values;
 }
 
 function formatClock(date, timezone = selectedLocation.timezone) {
