@@ -49,6 +49,8 @@ const elements = {
   conditionLabel: document.querySelector("#conditionLabel"),
   maxTemp: document.querySelector("#maxTemp"),
   minTemp: document.querySelector("#minTemp"),
+  currentPrecipMetric: document.querySelector(".current-rain"),
+  currentPrecipLabel: document.querySelector(".current-rain dt"),
   rainTotal: document.querySelector("#rainTotal"),
   windText: document.querySelector("#windText"),
   windArrow: document.querySelector("#windArrow"),
@@ -56,6 +58,7 @@ const elements = {
   forecastTab: document.querySelector("#forecastTab"),
   forecastPanel: document.querySelector("#forecastPanel"),
   forecastBody: document.querySelector("#forecastBody"),
+  forecastPrecipHeader: document.querySelector(".forecast-table th:nth-child(5)"),
   infoButton: document.querySelector("#infoButton"),
   infoDialog: document.querySelector("#infoDialog"),
   radarPanel: document.querySelector(".radar-panel"),
@@ -218,6 +221,11 @@ const weatherCodes = {
   },
 };
 
+const snowWeatherCodes = new Set([71, 73, 75, 77, 85, 86]);
+// Near-even rain/snow totals should read as snow in the compact label.
+const snowCloseSplitRatio = 0.85;
+const meaningfulPrecipitationChanceThreshold = 5;
+const freezingTemperatureThreshold = 0;
 const compassPoints = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 
 let map;
@@ -660,6 +668,9 @@ async function loadWeather() {
       "temperature_2m_max",
       "temperature_2m_min",
       "precipitation_probability_max",
+      "rain_sum",
+      "showers_sum",
+      "snowfall_sum",
       "wind_speed_10m_max",
       "wind_direction_10m_dominant",
     ].join(","),
@@ -667,6 +678,9 @@ async function loadWeather() {
       "temperature_2m",
       "weather_code",
       "precipitation_probability",
+      "rain",
+      "showers",
+      "snowfall",
       "wind_speed_10m",
       "wind_direction_10m",
       "is_day",
@@ -697,16 +711,31 @@ function renderWeather(data) {
   weatherData = data;
   const current = data.current;
   const daily = data.daily;
+  const todayPrecipitation = buildPrecipitationChance({
+    chance: daily.precipitation_probability_max?.[0],
+    weatherCode: daily.weather_code?.[0],
+    rainAmount: daily.rain_sum?.[0],
+    showersAmount: daily.showers_sum?.[0],
+    snowfallAmount: daily.snowfall_sum?.[0],
+    temperature: daily.temperature_2m_max?.[0],
+  });
 
   elements.maxTemp.textContent = formatOptionalTemperature(daily.temperature_2m_max?.[0]);
   elements.minTemp.textContent = formatOptionalTemperature(daily.temperature_2m_min?.[0]);
-  elements.rainTotal.textContent = formatOptionalRainChance(daily.precipitation_probability_max?.[0]);
+  renderCurrentPrecipitation(todayPrecipitation);
   elements.updatedAt.textContent = `Checked ${formatClock(new Date())}`;
   elements.updatedAt.title = `Weather observation ${formatTime(current.time)}`;
   elements.updatedAt.classList.remove("error");
 
   renderFiveDayForecast(data);
   renderTimedWeather(getActiveRadarDate() || new Date(current.time * 1000));
+}
+
+function renderCurrentPrecipitation(precipitation) {
+  elements.currentPrecipLabel.textContent = precipitation.label;
+  elements.rainTotal.textContent = precipitation.value;
+  elements.rainTotal.title = precipitation.ariaLabel;
+  elements.currentPrecipMetric.setAttribute("aria-label", `Daily ${precipitation.label.toLowerCase()} chance`);
 }
 
 function renderTimedWeather(date) {
@@ -811,6 +840,8 @@ function getActiveRadarDate() {
 
 function renderFiveDayForecast(data) {
   const days = buildFiveDayForecast(data);
+  renderDailyPrecipitationHeader(days);
+
   if (!days.length) {
     expandedForecastDayKey = undefined;
     elements.forecastBody.innerHTML = '<tr><td class="forecast-empty" colspan="6">Forecast unavailable</td></tr>';
@@ -830,6 +861,12 @@ function renderFiveDayForecast(data) {
   elements.forecastBody.replaceChildren(...rows);
 }
 
+function renderDailyPrecipitationHeader(days) {
+  if (elements.forecastPrecipHeader) {
+    elements.forecastPrecipHeader.textContent = getDominantPrecipitationLabel(days.map((day) => day.precipitation));
+  }
+}
+
 function buildFiveDayForecast(data) {
   const daily = data?.daily;
   const hourly = data?.hourly;
@@ -846,8 +883,21 @@ function buildFiveDayForecast(data) {
     const windSpeed = daily.wind_speed_10m_max?.[index];
     const windDirection = daily.wind_direction_10m_dominant?.[index];
     const condition = getCondition(daily.weather_code?.[index], true);
+    const precipitation = buildPrecipitationChance({
+      chance: daily.precipitation_probability_max?.[index],
+      weatherCode: daily.weather_code?.[index],
+      rainAmount: daily.rain_sum?.[index],
+      showersAmount: daily.showers_sum?.[index],
+      snowfallAmount: daily.snowfall_sum?.[index],
+      temperature: daily.temperature_2m_max?.[index],
+    });
     const key = formatDateKey(time);
     const isToday = key === todayKey;
+
+    const hours = buildHourlyForecastForDay(hourly, key, {
+      currentHour,
+      isToday,
+    });
 
     return {
       key,
@@ -856,11 +906,12 @@ function buildFiveDayForecast(data) {
       condition,
       max: formatOptionalTemperature(daily.temperature_2m_max?.[index]),
       min: formatOptionalTemperature(daily.temperature_2m_min?.[index]),
-      rain: formatOptionalRainChance(daily.precipitation_probability_max?.[index]),
+      precipitation,
       wind: formatOptionalWind(windDirection, windSpeed),
-      hours: buildHourlyForecastForDay(hourly, key, {
-        currentHour,
-        isToday,
+      hours,
+      hourlyPrecipitationLabel: getDominantPrecipitationLabel(hours.map((hour) => hour.precipitation), {
+        fallbackType: precipitation.type,
+        minimumChance: meaningfulPrecipitationChanceThreshold,
       }),
     };
   });
@@ -880,7 +931,7 @@ function createForecastRow(day, isExpanded) {
     createIconCell(day.condition),
     createCell(day.max, "temp-max"),
     createCell(day.min, "temp-min"),
-    createCell(day.rain),
+    createCell(day.precipitation.value),
     createCell(day.wind, "forecast-wind"),
   );
   return row;
@@ -961,7 +1012,7 @@ function createHourlyForecastRow(day) {
   grid.setAttribute("aria-label", `Hourly forecast for ${day.fullDay}`);
 
   if (day.hours.length) {
-    grid.appendChild(createHourlyHeaderRow());
+    grid.appendChild(createHourlyHeaderRow(day.hourlyPrecipitationLabel));
     day.hours.forEach((hour) => {
       grid.appendChild(createHourlyDataRow(hour));
     });
@@ -979,7 +1030,7 @@ function createHourlyForecastRow(day) {
   return row;
 }
 
-function createHourlyHeaderRow() {
+function createHourlyHeaderRow(precipitationLabel) {
   const row = document.createElement("div");
   row.className = "hourly-row hourly-head-row";
   row.setAttribute("role", "row");
@@ -987,7 +1038,7 @@ function createHourlyHeaderRow() {
     createHourlyTextCell("Time", "hourly-time", "columnheader"),
     createHourlyTextCell("Sky", "hourly-sky", "columnheader"),
     createHourlyTextCell("Temp", "hourly-temp", "columnheader"),
-    createHourlyTextCell("Rain", "hourly-rain", "columnheader"),
+    createHourlyTextCell(precipitationLabel, "hourly-rain", "columnheader"),
     createHourlyTextCell("Wind", "hourly-wind", "columnheader"),
   );
   return row;
@@ -997,12 +1048,15 @@ function createHourlyDataRow(hour) {
   const row = document.createElement("div");
   row.className = "hourly-row";
   row.setAttribute("role", "row");
-  row.setAttribute("aria-label", `${hour.time}, ${hour.condition.label}, ${hour.temperature}, rain ${hour.rain}, wind ${hour.wind}`);
+  row.setAttribute(
+    "aria-label",
+    `${hour.time}, ${hour.condition.label}, ${hour.temperature}, precipitation chance ${hour.precipitation.value}, wind ${hour.wind}`,
+  );
   row.append(
     createHourlyTextCell(hour.time, "hourly-time"),
     createHourlyIconCell(hour.condition),
     createHourlyTextCell(hour.temperature, "hourly-temp"),
-    createHourlyTextCell(hour.rain, "hourly-rain"),
+    createHourlyTextCell(hour.precipitation.value, "hourly-rain"),
     createHourlyTextCell(hour.wind, "hourly-wind"),
   );
   return row;
@@ -1049,7 +1103,14 @@ function buildHourlyForecastForDay(hourly, dayKey, { currentHour, isToday } = {}
         time: formatTime(time),
         condition: getCondition(hourly.weather_code?.[index], isDay),
         temperature: formatOptionalTemperature(hourly.temperature_2m?.[index]),
-        rain: formatOptionalRainChance(hourly.precipitation_probability?.[index]),
+        precipitation: buildPrecipitationChance({
+          chance: hourly.precipitation_probability?.[index],
+          weatherCode: hourly.weather_code?.[index],
+          rainAmount: hourly.rain?.[index],
+          showersAmount: hourly.showers?.[index],
+          snowfallAmount: hourly.snowfall?.[index],
+          temperature: hourly.temperature_2m?.[index],
+        }),
         wind: formatOptionalWind(hourly.wind_direction_10m?.[index], hourly.wind_speed_10m?.[index]),
       };
     });
@@ -2010,6 +2071,88 @@ function formatOptionalTemperature(value) {
 
 function formatOptionalRainChance(value) {
   return Number.isFinite(value) ? `${Math.round(value)}%` : "--%";
+}
+
+function buildPrecipitationChance({ chance, weatherCode, rainAmount, showersAmount, snowfallAmount, temperature }) {
+  const type = getPrecipitationType({
+    weatherCode,
+    rainAmount,
+    showersAmount,
+    snowfallAmount,
+    temperature,
+  });
+  const label = getPrecipitationLabel(type);
+  const value = formatOptionalRainChance(chance);
+
+  return {
+    type,
+    label,
+    value,
+    chance,
+    ariaLabel: `${label} chance ${value}`,
+  };
+}
+
+function getDominantPrecipitationLabel(precipitations, { fallbackType = "rain", minimumChance = 0 } = {}) {
+  const totals = precipitations.reduce(
+    (scores, precipitation) => {
+      if (!precipitation) {
+        return scores;
+      }
+
+      const chance = Number.isFinite(precipitation.chance) ? precipitation.chance : 0;
+      if (Number.isFinite(precipitation.chance) && chance < minimumChance) {
+        return scores;
+      }
+
+      const key = precipitation.type === "snow" ? "snow" : "rain";
+      scores[`${key}Count`] += 1;
+      scores[`${key}Chance`] += chance;
+      return scores;
+    },
+    {
+      rainChance: 0,
+      snowChance: 0,
+      rainCount: 0,
+      snowCount: 0,
+    },
+  );
+  const hasChance = totals.rainChance > 0 || totals.snowChance > 0;
+  const hasPrecipitationSignal = totals.rainCount > 0 || totals.snowCount > 0;
+
+  if (!hasPrecipitationSignal) {
+    return getPrecipitationLabel(fallbackType);
+  }
+
+  const rainScore = hasChance ? totals.rainChance : totals.rainCount;
+  const snowScore = hasChance ? totals.snowChance : totals.snowCount;
+
+  return snowScore > 0 && snowScore >= rainScore * snowCloseSplitRatio ? "Snow" : "Rain";
+}
+
+function getPrecipitationLabel(type) {
+  return type === "snow" ? "Snow" : "Rain";
+}
+
+function getPrecipitationType({ weatherCode, rainAmount, showersAmount, snowfallAmount, temperature }) {
+  const rainTotal = sumFiniteValues(rainAmount, showersAmount);
+  const snowTotal = Number.isFinite(snowfallAmount) ? snowfallAmount : 0;
+
+  if (snowWeatherCodes.has(Number(weatherCode))) {
+    return "snow";
+  }
+
+  if (rainTotal > 0 || snowTotal > 0) {
+    return snowTotal > 0 && (rainTotal <= 0 || snowTotal >= rainTotal * snowCloseSplitRatio)
+      ? "snow"
+      : "rain";
+  }
+
+  return Number.isFinite(temperature) && temperature <= freezingTemperatureThreshold ? "snow" : "rain";
+}
+
+function sumFiniteValues(...values) {
+  return values.reduce((total, value) => total + (Number.isFinite(value) ? value : 0), 0);
 }
 
 function formatOptionalWind(direction, speed) {

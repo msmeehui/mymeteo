@@ -1786,8 +1786,8 @@ input[type="range"]::-moz-range-thumb {
   }
 
   .current {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(104px, 1fr);
-    gap: 14px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
   }
 
   .condition-mark {
@@ -1810,7 +1810,12 @@ input[type="range"]::-moz-range-thumb {
   }
 
   .supporting-readout {
-    justify-self: start;
+    justify-self: center;
+  }
+
+  .condition-cluster,
+  .temperature-cluster {
+    justify-self: center;
   }
 
   .weather-tabs {
@@ -1847,6 +1852,16 @@ input[type="range"]::-moz-range-thumb {
   .forecast-table td {
     padding: 8px 4px;
     font-size: 0.98rem;
+  }
+
+  .forecast-table th:nth-child(5),
+  .forecast-table td:nth-child(5) {
+    padding-right: 8px;
+  }
+
+  .forecast-table th:nth-child(6),
+  .forecast-table td:nth-child(6) {
+    padding-left: 8px;
   }
 
   .forecast-condition-mark {
@@ -1903,8 +1918,8 @@ input[type="range"]::-moz-range-thumb {
 
 @media (min-width: 760px) and (max-width: 980px) {
   .current {
-    grid-template-columns: minmax(70px, 0.9fr) minmax(72px, 1fr) minmax(92px, 1fr);
-    gap: 18px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
   }
 
   .condition-cluster {
@@ -1947,8 +1962,7 @@ input[type="range"]::-moz-range-thumb {
 
 @media (min-width: 760px) and (max-width: 860px) {
   .current {
-    grid-template-columns: max-content max-content max-content;
-    justify-content: space-between;
-    gap: 4px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
   }
 }
