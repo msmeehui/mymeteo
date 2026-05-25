@@ -12,6 +12,8 @@ const buienradarAnimationBaseUrl = "https://image.buienradar.nl/2.0/image/animat
 const gifDecoderModuleUrl = "https://esm.sh/gifuct-js@2.1.2?bundle";
 const weatherIconBasePath = "assets/weather-icons-mymeteo/";
 const buienradarRadarCacheMaxAgeMs = 9 * 60 * 1000;
+const analyticsMeasurementId = "G-WLC2VP6GKK";
+const analyticsHostnames = new Set(["mymeteo.nl", "www.mymeteo.nl"]);
 const buienradarBounds = [
   [48.92249926375824, 0],
   [55.77657301866769, 11.25],
@@ -266,6 +268,7 @@ function init() {
     window.lucide.createIcons();
   }
 
+  initAnalytics();
   renderLocation();
   initMap();
   bindEvents();
@@ -310,9 +313,18 @@ function bindEvents() {
       }
     });
   }
-  elements.refreshButton.addEventListener("click", loadAll);
-  elements.rainTab.addEventListener("click", () => setMobileView("rain"));
-  elements.forecastTab.addEventListener("click", () => setMobileView("forecast"));
+  elements.refreshButton.addEventListener("click", () => {
+    trackAnalyticsEvent("refresh");
+    loadAll();
+  });
+  elements.rainTab.addEventListener("click", () => {
+    trackAnalyticsEvent("rain_tab");
+    setMobileView("rain");
+  });
+  elements.forecastTab.addEventListener("click", () => {
+    trackAnalyticsEvent("forecast_tab");
+    setMobileView("forecast");
+  });
   if (elements.infoButton && elements.infoDialog) {
     elements.infoButton.addEventListener("click", openInfoDialog);
     elements.infoDialog.addEventListener("click", (event) => {
@@ -338,6 +350,39 @@ function bindEvents() {
     radarResizeObserver.observe(elements.radarPanel);
     radarResizeObserver.observe(elements.radarMap);
   }
+}
+
+function initAnalytics() {
+  if (!shouldEnableAnalytics() || window.gtag) {
+    return;
+  }
+
+  window.dataLayer = window.dataLayer || [];
+  window.gtag = function gtag() {
+    window.dataLayer.push(arguments);
+  };
+  window.gtag("js", new Date());
+  window.gtag("config", analyticsMeasurementId, {
+    allow_ad_personalization_signals: false,
+    allow_google_signals: false,
+  });
+
+  const script = document.createElement("script");
+  script.async = true;
+  script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(analyticsMeasurementId)}`;
+  document.head.appendChild(script);
+}
+
+function shouldEnableAnalytics() {
+  return analyticsHostnames.has(window.location.hostname.toLowerCase());
+}
+
+function trackAnalyticsEvent(eventName) {
+  if (!shouldEnableAnalytics() || typeof window.gtag !== "function") {
+    return;
+  }
+
+  window.gtag("event", eventName);
 }
 
 function renderLocation() {
@@ -469,7 +514,7 @@ function selectMatchingLocation() {
   const match = locationSearchResults.find((result) => formatLocationResult(result) === typedValue);
 
   if (match) {
-    applyLocation(locationFromResult(match));
+    applyLocation(locationFromResult(match), "location_search");
   }
 }
 
@@ -483,14 +528,14 @@ async function selectTypedLocation() {
 
   const exactMatch = locationSearchResults.find((result) => formatLocationResult(result) === typedValue);
   if (exactMatch) {
-    applyLocation(locationFromResult(exactMatch));
+    applyLocation(locationFromResult(exactMatch), "location_search");
     return;
   }
 
   window.clearTimeout(locationSearchTimer);
   const results = await searchLocationSuggestions(typedValue);
   if (results[0]) {
-    applyLocation(locationFromResult(results[0]));
+    applyLocation(locationFromResult(results[0]), "location_search");
   } else {
     elements.updatedAt.textContent = "Location not found";
     elements.updatedAt.classList.add("error");
@@ -543,7 +588,7 @@ function renderLocationOptions() {
       option.id = `location-option-${index}`;
       option.textContent = formatLocationResult(result);
       option.addEventListener("click", () => {
-        applyLocation(locationFromResult(result));
+        applyLocation(locationFromResult(result), "location_search");
       });
       item.appendChild(option);
       return item;
@@ -596,7 +641,7 @@ function useCurrentLocation() {
         lat: position.coords.latitude,
         lon: position.coords.longitude,
         timezone: getBrowserTimezone(),
-      });
+      }, "current_location_used");
     },
     (error) => {
       console.error(error);
@@ -624,7 +669,11 @@ function getGeolocationErrorMessage(error) {
   return "Current location unavailable";
 }
 
-function applyLocation(location) {
+function applyLocation(location, analyticsEventName) {
+  if (analyticsEventName) {
+    trackAnalyticsEvent(analyticsEventName);
+  }
+
   selectedLocation = normalizeLocation(location);
   saveLocation(selectedLocation);
   hideLocationOptions();
@@ -1237,6 +1286,7 @@ async function toggleBuienradarRadarMode(event) {
   if (cachedRadar) {
     buienradarDisplayRequestId += 1;
     displayBuienradarRadar(cachedRadar);
+    trackAnalyticsEvent(`radar_${nextModeId}`);
     scheduleInactiveBuienradarRadarPreload();
     updateBuienradarModeControl();
     return;
@@ -1252,6 +1302,7 @@ async function toggleBuienradarRadarMode(event) {
     const radar = await fetchBuienradarRadarMode(nextModeId);
     if (requestId === buienradarDisplayRequestId && activeBuienradarRadarModeId === nextModeId && isInBuienradarBounds(selectedLocation)) {
       displayBuienradarRadar(radar);
+      trackAnalyticsEvent(`radar_${nextModeId}`);
       scheduleInactiveBuienradarRadarPreload();
     }
   } catch (error) {
