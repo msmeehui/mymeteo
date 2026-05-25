@@ -11,6 +11,7 @@ const libreWxrRadarUrl = "https://api.librewxr.net/public/weather-maps.json";
 const buienradarAnimationBaseUrl = "https://image.buienradar.nl/2.0/image/animation";
 const gifDecoderModuleUrl = "https://esm.sh/gifuct-js@2.1.2?bundle";
 const weatherIconBasePath = "assets/weather-icons-mymeteo/";
+const buienradarRadarCacheMaxAgeMs = 9 * 60 * 1000;
 const buienradarBounds = [
   [48.92249926375824, 0],
   [55.77657301866769, 11.25],
@@ -1230,7 +1231,7 @@ async function toggleBuienradarRadarMode(event) {
   }
 
   const nextModeId = getNextBuienradarRadarModeId(getDisplayedBuienradarRadarModeId());
-  const cachedRadar = buienradarRadarCache.get(nextModeId);
+  const cachedRadar = getFreshBuienradarRadarCache(nextModeId);
   activeBuienradarRadarModeId = nextModeId;
 
   if (cachedRadar) {
@@ -1333,7 +1334,7 @@ async function loadBuienradarRadar() {
 }
 
 async function fetchBuienradarRadarMode(radarModeId, { forceRefresh = false } = {}) {
-  const cachedRadar = buienradarRadarCache.get(radarModeId);
+  const cachedRadar = getFreshBuienradarRadarCache(radarModeId);
   if (!forceRefresh && cachedRadar) {
     return cachedRadar;
   }
@@ -1384,6 +1385,7 @@ async function downloadBuienradarRadarMode(radarModeId) {
     frameUrls,
     startDate,
     timeline,
+    fetchedAt: Date.now(),
   };
 }
 
@@ -1722,7 +1724,7 @@ function scheduleInactiveBuienradarRadarPreload() {
   }
 
   const nextModeId = getNextBuienradarRadarModeId(getDisplayedBuienradarRadarModeId());
-  if (buienradarRadarCache.has(nextModeId) || buienradarRadarRequests.has(nextModeId)) {
+  if (getFreshBuienradarRadarCache(nextModeId) || buienradarRadarRequests.has(nextModeId)) {
     return;
   }
 
@@ -1751,6 +1753,15 @@ function cacheBuienradarRadar(radar) {
   if (previousRadar && previousRadar.frameUrls !== radar.frameUrls && previousRadar.frameUrls !== buienradarFrameUrls) {
     revokeBuienradarRadar(previousRadar);
   }
+}
+
+function getFreshBuienradarRadarCache(radarModeId) {
+  const radar = buienradarRadarCache.get(radarModeId);
+  return radar && isFreshBuienradarRadar(radar) ? radar : undefined;
+}
+
+function isFreshBuienradarRadar(radar) {
+  return Number.isFinite(radar.fetchedAt) && Date.now() - radar.fetchedAt < buienradarRadarCacheMaxAgeMs;
 }
 
 function isBuienradarFrameUrlsCached(frameUrls) {
