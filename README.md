@@ -58,6 +58,7 @@ No API key is required. The app uses public weather and map sources:
 
 - Forecast data: [Open-Meteo Forecast API](https://open-meteo.com/)
 - Location autocomplete: [Open-Meteo Geocoding API](https://open-meteo.com/en/docs/geocoding-api)
+- Current-location names: [OpenStreetMap Nominatim](https://nominatim.openstreetmap.org/)
 - Rain radar animation: [Buienradar](https://www.buienradar.nl/)
 - Radar frame decoding: [gifuct-js](https://github.com/matt-way/gifuct-js) through [esm.sh](https://esm.sh/)
 - Fallback radar tiles: [LibreWXR](https://librewxr.net/)
@@ -66,7 +67,7 @@ No API key is required. The app uses public weather and map sources:
 
 ## Notes
 
-- Current-location mode only runs after the visitor grants browser geolocation permission.
+- Current-location mode auto-refreshes on open when browser geolocation permission is already granted.
 - The app needs an internet connection because weather, radar, map tiles, and external libraries are loaded from public services.
 - This is a static HTML, CSS, and JavaScript project, so it can be hosted with GitHub Pages.
 

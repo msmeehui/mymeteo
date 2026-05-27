@@ -12,6 +12,10 @@ const buienradarAnimationBaseUrl = "https://image.buienradar.nl/2.0/image/animat
 const gifDecoderModuleUrl = "https://esm.sh/gifuct-js@2.1.2?bundle";
 const weatherIconBasePath = "assets/weather-icons-mymeteo/";
 const buienradarRadarCacheMaxAgeMs = 9 * 60 * 1000;
+const currentLocationSource = "current";
+const currentLocationRefreshCooldownMs = 60 * 1000;
+const compactLocationLabelMediaQuery = "(max-width: 480px)";
+const reverseGeocodingTimeoutMs = 5 * 1000;
 const analyticsMeasurementId = "G-WLC2VP6GKK";
 const analyticsHostnames = new Set(["mymeteo.nl", "www.mymeteo.nl"]);
 const buienradarBounds = [
@@ -263,6 +267,12 @@ let weatherData;
 let activeMobileView = "rain";
 let expandedForecastDayKey;
 let selectedLocation = loadStoredLocation() || DEFAULT_LOCATION;
+let currentLocationRefreshState = isCurrentLocation(selectedLocation) ? "stale" : "idle";
+let currentLocationRefreshPromise;
+let lastCurrentLocationRefreshAttemptAt = 0;
+let statusMessage = elements.updatedAt.textContent || "Loading forecast...";
+let statusTitle = elements.updatedAt.title || "";
+let statusIsError = elements.updatedAt.classList.contains("error");
 let refreshTimer;
 
 function init() {
@@ -275,7 +285,8 @@ function init() {
   initMap();
   bindEvents();
   syncForecastViewForViewport();
-  loadAll();
+  hydrateStoredCurrentLocationName();
+  loadInitialWeather();
   refreshTimer = window.setInterval(loadAll, 10 * 60 * 1000);
 }
 
@@ -306,6 +317,16 @@ function bindEvents() {
     }
   });
   elements.locateButton.addEventListener("click", useCurrentLocation);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      refreshCurrentLocationOnResume();
+    }
+  });
+  window.addEventListener("pageshow", (event) => {
+    if (event.persisted) {
+      refreshCurrentLocationOnResume();
+    }
+  });
   if (elements.brandButton) {
     elements.brandButton.addEventListener("click", openInfoDialog);
     elements.brandButton.addEventListener("keydown", (event) => {
@@ -341,7 +362,12 @@ function bindEvents() {
   });
   window.addEventListener("resize", () => {
     scheduleSliderTimestampsUpdate();
-    resizeLocationInput(elements.locationInput.value);
+    if (document.activeElement === elements.locationInput) {
+      resizeLocationInput(elements.locationInput.value);
+      renderStatusLine();
+    } else {
+      renderLocation();
+    }
     syncForecastViewForViewport();
   });
   if ("ResizeObserver" in window) {
@@ -388,10 +414,132 @@ function trackAnalyticsEvent(eventName) {
 }
 
 function renderLocation() {
-  elements.locationInput.value = selectedLocation.name;
-  elements.locationInput.title = selectedLocation.label || selectedLocation.name;
-  resizeLocationInput(selectedLocation.name);
+  const displayName = getLocationDisplayName(selectedLocation);
+  elements.locationInput.value = displayName;
+  elements.locationInput.title = getLocationTitle(selectedLocation);
+  const locateButtonLabel = getLocateButtonLabel();
+  elements.locateButton.setAttribute("aria-label", locateButtonLabel);
+  elements.locateButton.title = locateButtonLabel;
+  resizeLocationInput(displayName);
+  renderStatusLine();
   document.title = "MyMeteo";
+}
+
+function getLocationDisplayName(location) {
+  if (isCompactLocationLabel()) {
+    return getCompactLocationDisplayName(location);
+  }
+
+  if (!isCurrentLocation(location)) {
+    return location.name;
+  }
+
+  if (currentLocationRefreshState === "refreshing") {
+    return "Updating current location...";
+  }
+
+  const placeName = getCurrentLocationPlaceName(location);
+  const prefix = currentLocationRefreshState === "verified" ? "Current location" : "Last known location";
+  return `${prefix}: ${placeName}`;
+}
+
+function getCompactLocationDisplayName(location) {
+  if (!isCurrentLocation(location)) {
+    return location.name;
+  }
+
+  return getCurrentLocationPlaceName(location);
+}
+
+function getLocationTitle(location) {
+  if (!isCurrentLocation(location)) {
+    return location.label || location.name;
+  }
+
+  if (currentLocationRefreshState === "refreshing") {
+    return "Updating current location";
+  }
+
+  const placeLabel = getCurrentLocationPlaceLabel(location);
+  const prefix = currentLocationRefreshState === "verified" ? "Current location" : "Last known location";
+  return `${prefix}: ${placeLabel}`;
+}
+
+function getLocateButtonLabel() {
+  if (currentLocationRefreshState === "refreshing") {
+    return "Updating current location";
+  }
+
+  return isCurrentLocation(selectedLocation) ? "Update current location" : "Use current location";
+}
+
+function getCurrentLocationStatusLabel() {
+  if (!isCurrentLocation(selectedLocation)) {
+    return "";
+  }
+
+  if (currentLocationRefreshState === "refreshing") {
+    return "";
+  }
+
+  return currentLocationRefreshState === "verified" ? "Current location" : "Last known location";
+}
+
+function getCurrentLocationPlaceName(location) {
+  if (!hasGenericCurrentLocationName(location)) {
+    return location.name;
+  }
+
+  return formatCoordinates(location);
+}
+
+function getCurrentLocationPlaceLabel(location) {
+  if (location.label && !isGenericCurrentLocationText(location.label)) {
+    return location.label;
+  }
+
+  return getCurrentLocationPlaceName(location);
+}
+
+function hasGenericCurrentLocationName(location) {
+  return !location?.name || isGenericCurrentLocationText(location.name);
+}
+
+function isGenericCurrentLocationText(value) {
+  return String(value || "").trim().toLowerCase() === "current location";
+}
+
+function isLegacyCurrentLocation(location) {
+  return isGenericCurrentLocationText(location?.name) || isGenericCurrentLocationText(location?.label);
+}
+
+function isCurrentLocation(location) {
+  return location?.source === currentLocationSource || isLegacyCurrentLocation(location);
+}
+
+function formatCoordinates(location) {
+  return `${Number(location.lat).toFixed(3)}, ${Number(location.lon).toFixed(3)}`;
+}
+
+function isCompactLocationLabel() {
+  return window.matchMedia(compactLocationLabelMediaQuery).matches;
+}
+
+function setStatusMessage(message, { title = "", isError = false } = {}) {
+  statusMessage = message;
+  statusTitle = title;
+  statusIsError = isError;
+  renderStatusLine();
+}
+
+function renderStatusLine() {
+  const compactLocationStatus = isCompactLocationLabel() ? getCurrentLocationStatusLabel() : "";
+  const statusParts = [compactLocationStatus, statusMessage].filter(Boolean);
+  const titleParts = [compactLocationStatus, statusTitle].filter(Boolean);
+
+  elements.updatedAt.textContent = statusParts.join(" · ");
+  elements.updatedAt.title = titleParts.join(" · ");
+  elements.updatedAt.classList.toggle("error", statusIsError);
 }
 
 function openInfoDialog() {
@@ -514,6 +662,10 @@ function selectLocationInputText() {
 
 function selectMatchingLocation() {
   const typedValue = elements.locationInput.value.trim();
+  if (typedValue === getLocationDisplayName(selectedLocation)) {
+    return;
+  }
+
   const match = locationSearchResults.find((result) => formatLocationResult(result) === typedValue);
 
   if (match) {
@@ -523,6 +675,11 @@ function selectMatchingLocation() {
 
 async function selectTypedLocation() {
   const typedValue = elements.locationInput.value.trim();
+
+  if (typedValue === getLocationDisplayName(selectedLocation)) {
+    renderLocation();
+    return;
+  }
 
   if (typedValue.length < 2) {
     renderLocation();
@@ -540,8 +697,7 @@ async function selectTypedLocation() {
   if (results[0]) {
     applyLocation(locationFromResult(results[0]), "location_search");
   } else {
-    elements.updatedAt.textContent = "Location not found";
-    elements.updatedAt.classList.add("error");
+    setStatusMessage("Location not found", { isError: true });
   }
 }
 
@@ -619,50 +775,132 @@ function locationFromResult(result) {
   };
 }
 
-function useCurrentLocation() {
-  if (!navigator.geolocation) {
-    elements.updatedAt.textContent = "Current location unavailable";
-    elements.updatedAt.classList.add("error");
+async function useCurrentLocation() {
+  await requestCurrentLocation({
+    analyticsEventName: "current_location_used",
+  });
+}
+
+async function loadInitialWeather() {
+  const didAttemptCurrentLocationRefresh = await refreshCurrentLocationIfAllowed({
+    analyticsEventName: "current_location_auto_refreshed",
+    loadWeatherOnFailure: true,
+  });
+
+  if (!didAttemptCurrentLocationRefresh) {
+    loadAll();
+  }
+}
+
+async function refreshCurrentLocationOnResume() {
+  if (!isCurrentLocation(selectedLocation)) {
     return;
+  }
+
+  if (Date.now() - lastCurrentLocationRefreshAttemptAt < currentLocationRefreshCooldownMs) {
+    return;
+  }
+
+  await refreshCurrentLocationIfAllowed({
+    analyticsEventName: "current_location_resume_refreshed",
+  });
+}
+
+async function refreshCurrentLocationIfAllowed({ analyticsEventName, loadWeatherOnFailure = false } = {}) {
+  if (!isCurrentLocation(selectedLocation) || currentLocationRefreshPromise) {
+    return false;
+  }
+
+  const permissionState = await getGeolocationPermissionState();
+  if (permissionState !== "granted") {
+    currentLocationRefreshState = "stale";
+    renderLocation();
+    return false;
+  }
+
+  currentLocationRefreshPromise = requestCurrentLocation({
+    analyticsEventName,
+    isAutoRefresh: true,
+    loadWeatherOnFailure,
+  }).finally(() => {
+    currentLocationRefreshPromise = undefined;
+  });
+
+  await currentLocationRefreshPromise;
+  return true;
+}
+
+async function requestCurrentLocation({ analyticsEventName, isAutoRefresh = false, loadWeatherOnFailure = false } = {}) {
+  if (!navigator.geolocation) {
+    setCurrentLocationErrorMessage("Current location unavailable");
+    return false;
   }
 
   if (!window.isSecureContext) {
-    elements.updatedAt.textContent = "Open via localhost for location";
-    elements.updatedAt.classList.add("error");
-    return;
+    setCurrentLocationErrorMessage("Open via localhost for location");
+    return false;
   }
 
-  elements.updatedAt.textContent = "Locating...";
-  elements.updatedAt.classList.remove("error");
+  lastCurrentLocationRefreshAttemptAt = Date.now();
+  currentLocationRefreshState = "refreshing";
+  renderLocation();
+  setStatusMessage(isAutoRefresh ? "Updating current location..." : "Locating...");
   elements.locateButton.disabled = true;
 
-  navigator.geolocation.getCurrentPosition(
-    (position) => {
-      applyLocation({
-        name: "Current location",
-        label: "Current location",
-        lat: position.coords.latitude,
-        lon: position.coords.longitude,
-        timezone: getBrowserTimezone(),
-      }, "current_location_used");
-    },
-    (error) => {
-      console.error(error);
-      elements.updatedAt.textContent = getGeolocationErrorMessage(error);
-      elements.updatedAt.classList.add("error");
-      elements.locateButton.disabled = false;
-    },
-    {
+  try {
+    const position = await getCurrentPosition({
       enableHighAccuracy: true,
       maximumAge: 5 * 60 * 1000,
       timeout: 10 * 1000,
-    },
-  );
+    });
+    const location = await currentLocationFromPosition(position);
+    currentLocationRefreshState = "verified";
+    applyLocation(location, analyticsEventName);
+    return true;
+  } catch (error) {
+    console.error(error);
+    currentLocationRefreshState = isCurrentLocation(selectedLocation) ? "stale" : "idle";
+    renderLocation();
+    setCurrentLocationErrorMessage(getGeolocationErrorMessage(error));
+
+    if (loadWeatherOnFailure) {
+      loadAll();
+    }
+
+    return false;
+  } finally {
+    if (!elements.app.classList.contains("is-loading")) {
+      elements.locateButton.disabled = false;
+    }
+  }
+}
+
+function getCurrentPosition(options) {
+  return new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(resolve, reject, options);
+  });
+}
+
+async function getGeolocationPermissionState() {
+  if (!navigator.permissions?.query) {
+    return "unknown";
+  }
+
+  try {
+    const permission = await navigator.permissions.query({ name: "geolocation" });
+    return permission.state;
+  } catch (error) {
+    return "unknown";
+  }
+}
+
+function setCurrentLocationErrorMessage(message) {
+  setStatusMessage(message, { isError: true });
 }
 
 function getGeolocationErrorMessage(error) {
   if (error.code === error.PERMISSION_DENIED) {
-    return "Location permission blocked";
+    return "Location access is off";
   }
 
   if (error.code === error.TIMEOUT) {
@@ -672,12 +910,138 @@ function getGeolocationErrorMessage(error) {
   return "Current location unavailable";
 }
 
+async function currentLocationFromPosition(position) {
+  const lat = position.coords.latitude;
+  const lon = position.coords.longitude;
+  const fallbackLocation = { lat, lon };
+  const fallbackName = isNearbyLocation(selectedLocation, fallbackLocation)
+    ? getCurrentLocationPlaceName(selectedLocation)
+    : formatCoordinates(fallbackLocation);
+  const place = await reverseGeocodeLocation({ lat, lon }).catch((error) => {
+    console.warn("Could not name current location.", error);
+    return null;
+  });
+  const name = place?.name || fallbackName;
+
+  return {
+    name,
+    label: place?.label || name,
+    lat,
+    lon,
+    timezone: getBrowserTimezone(),
+    source: currentLocationSource,
+    locatedAt: Date.now(),
+    accuracy: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : undefined,
+  };
+}
+
+async function hydrateStoredCurrentLocationName() {
+  if (!isCurrentLocation(selectedLocation) || !hasGenericCurrentLocationName(selectedLocation)) {
+    return;
+  }
+
+  const originalLocation = selectedLocation;
+  const place = await reverseGeocodeLocation(originalLocation).catch((error) => {
+    console.warn("Could not name stored current location.", error);
+    return null;
+  });
+
+  if (!place || selectedLocation !== originalLocation) {
+    return;
+  }
+
+  selectedLocation = normalizeLocation({
+    ...selectedLocation,
+    name: place.name,
+    label: place.label,
+    source: currentLocationSource,
+  });
+  saveLocation(selectedLocation);
+  renderLocation();
+}
+
+async function reverseGeocodeLocation(location) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), reverseGeocodingTimeoutMs);
+  const params = new URLSearchParams({
+    lat: String(location.lat),
+    lon: String(location.lon),
+    format: "jsonv2",
+    zoom: "10",
+    addressdetails: "1",
+    "accept-language": "en",
+  });
+
+  try {
+    const response = await fetch(`https://nominatim.openstreetmap.org/reverse?${params}`, {
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`OpenStreetMap reverse geocoding responded with ${response.status}`);
+    }
+
+    const data = await response.json();
+    return placeFromReverseGeocoding(data, location);
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+function placeFromReverseGeocoding(data, fallbackLocation) {
+  const address = data?.address || {};
+  const name = data?.name
+    || address.city
+    || address.town
+    || address.village
+    || address.municipality
+    || address.county
+    || address.state
+    || formatCoordinates(fallbackLocation);
+  const labelParts = [
+    name,
+    address.state,
+    address.country,
+  ].filter(Boolean);
+  const label = [...new Set(labelParts)].join(", ");
+
+  return {
+    name,
+    label: label || name,
+  };
+}
+
+function isNearbyLocation(location, nextLocation) {
+  if (!Number.isFinite(location?.lat) || !Number.isFinite(location?.lon)) {
+    return false;
+  }
+
+  return getLocationDistanceKm(location, nextLocation) < 2;
+}
+
+function getLocationDistanceKm(location, nextLocation) {
+  const earthRadiusKm = 6371;
+  const lat1 = degreesToRadians(location.lat);
+  const lat2 = degreesToRadians(nextLocation.lat);
+  const deltaLat = degreesToRadians(nextLocation.lat - location.lat);
+  const deltaLon = degreesToRadians(nextLocation.lon - location.lon);
+  const a = Math.sin(deltaLat / 2) ** 2
+    + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2;
+
+  return 2 * earthRadiusKm * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function degreesToRadians(degrees) {
+  return degrees * Math.PI / 180;
+}
+
 function applyLocation(location, analyticsEventName) {
   if (analyticsEventName) {
     trackAnalyticsEvent(analyticsEventName);
   }
 
-  selectedLocation = normalizeLocation(location);
+  const nextLocation = normalizeLocation(location);
+  currentLocationRefreshState = isCurrentLocation(nextLocation) ? currentLocationRefreshState : "idle";
+  selectedLocation = nextLocation;
   saveLocation(selectedLocation);
   hideLocationOptions();
   renderLocation();
@@ -698,7 +1062,7 @@ function updateMapLocation() {
 
 async function loadAll() {
   setLoading(true);
-  elements.updatedAt.textContent = "Refreshing...";
+  setStatusMessage("Refreshing...");
   await Promise.all([loadWeather(), loadRadar()]);
   setLoading(false);
 }
@@ -754,8 +1118,7 @@ async function loadWeather() {
     renderWeather(data);
   } catch (error) {
     console.error(error);
-    elements.updatedAt.textContent = "Forecast unavailable";
-    elements.updatedAt.classList.add("error");
+    setStatusMessage("Forecast unavailable", { isError: true });
     renderFiveDayForecast();
   }
 }
@@ -768,9 +1131,9 @@ function renderWeather(data) {
 
   renderCurrentTemperatureRange(todayTemperatureRange);
   renderCurrentPrecipitation(todayPrecipitation);
-  elements.updatedAt.textContent = `Checked ${formatClock(new Date())}`;
-  elements.updatedAt.title = `Weather observation ${formatTime(current.time)}`;
-  elements.updatedAt.classList.remove("error");
+  setStatusMessage(`Checked ${formatClock(new Date())}`, {
+    title: `Weather observation ${formatTime(current.time)}`,
+  });
 
   renderFiveDayForecast(data);
   renderCurrentWeather();
@@ -2541,12 +2904,18 @@ function kmhToBeaufort(kmh) {
 }
 
 function normalizeLocation(location) {
+  const source = location.source || (isLegacyCurrentLocation(location) ? currentLocationSource : undefined);
+  const locatedAt = Number(location.locatedAt);
+  const accuracy = Number(location.accuracy);
   return {
     name: location.name || "Selected location",
     label: location.label || location.name || "Selected location",
     lat: Number(location.lat),
     lon: Number(location.lon),
     timezone: location.timezone || getBrowserTimezone(),
+    source,
+    locatedAt: Number.isFinite(locatedAt) ? locatedAt : undefined,
+    accuracy: Number.isFinite(accuracy) ? accuracy : undefined,
   };
 }
 

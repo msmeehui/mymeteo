@@ -22,6 +22,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
     <link rel="manifest" href="site.webmanifest" />
     <link rel="preconnect" href="https://api.open-meteo.com" />
+    <link rel="preconnect" href="https://nominatim.openstreetmap.org" />
     <link rel="preconnect" href="https://api.librewxr.net" />
     <link rel="preconnect" href="https://image.buienradar.nl" />
     <link rel="preconnect" href="https://image-cdn.buienradar.nl" />
@@ -290,6 +291,12 @@
                   </dd>
                 </div>
                 <div>
+                  <dt>Current-location names:</dt>
+                  <dd>
+                    <a href="https://nominatim.openstreetmap.org/" target="_blank" rel="noopener noreferrer">OpenStreetMap Nominatim</a>
+                  </dd>
+                </div>
+                <div>
                   <dt>Rain radar animation:</dt>
                   <dd>
                     <a href="https://www.buienradar.nl/" target="_blank" rel="noopener noreferrer">Buienradar</a>
@@ -356,6 +363,9 @@
               <h3>27 May 2026</h3>
               <ul>
                 <li>Moved up the tabs on mobile and other small visual changes.</li>
+                <li>Changed the rain radar slider so it only controls the radar map, not the other weather data.</li>
+                <li>Changed today's maximum and minimum temperatures and precipitation chance so they only cover the remaining time until midnight.</li>
+                <li>Made the current location update automatically when location permission is already granted.</li>
               </ul>
 
               <h3>23 May 2026</h3>
@@ -402,6 +412,6 @@
       crossorigin=""
     ></script>
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-    <script src="app.js?v=20260527-19"></script>
+    <script src="app.js?v=20260528-2"></script>
   </body>
 </html>
