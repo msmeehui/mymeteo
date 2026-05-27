@@ -61,7 +61,7 @@ const elements = {
   forecastTab: document.querySelector("#forecastTab"),
   forecastPanel: document.querySelector("#forecastPanel"),
   forecastBody: document.querySelector("#forecastBody"),
-  forecastPrecipHeader: document.querySelector(".forecast-table th:nth-child(5)"),
+  forecastPrecipHeader: document.querySelector(".forecast-table th:nth-child(4)"),
   infoButton: document.querySelector("#infoButton"),
   infoDialog: document.querySelector("#infoDialog"),
   radarPanel: document.querySelector(".radar-panel"),
@@ -431,10 +431,11 @@ function syncForecastViewForViewport() {
   const isDesktop = window.matchMedia("(min-width: 760px)").matches;
   const showForecast = isDesktop || activeMobileView === "forecast";
   const showRadar = isDesktop || activeMobileView === "rain";
+  const showCurrentWeather = isDesktop || activeMobileView === "rain";
 
   elements.forecastPanel.hidden = !showForecast;
   elements.radarPanel.hidden = !showRadar;
-  elements.nowPanel.hidden = false;
+  elements.nowPanel.hidden = !showCurrentWeather;
   updateMobileTabs();
 
   if (window.lucide) {
@@ -894,7 +895,7 @@ function renderFiveDayForecast(data) {
 
   if (!days.length) {
     expandedForecastDayKey = undefined;
-    elements.forecastBody.innerHTML = '<tr><td class="forecast-empty" colspan="6">Forecast unavailable</td></tr>';
+    elements.forecastBody.innerHTML = '<tr><td class="forecast-empty" colspan="5">Forecast unavailable</td></tr>';
     return;
   }
 
@@ -979,8 +980,7 @@ function createForecastRow(day, isExpanded) {
   row.append(
     createDayCell(day, isExpanded),
     createIconCell(day.condition),
-    createCell(day.max, "temp-max"),
-    createCell(day.min, "temp-min"),
+    createForecastTemperatureCell(day),
     createCell(day.precipitation.value),
     createCell(day.wind, "forecast-wind"),
   );
@@ -1014,6 +1014,29 @@ function createCell(text, className) {
   if (className) {
     cell.className = className;
   }
+  return cell;
+}
+
+function createForecastTemperatureCell(day) {
+  const cell = document.createElement("td");
+  const value = document.createElement("span");
+  const max = document.createElement("span");
+  const separator = document.createElement("span");
+  const min = document.createElement("span");
+
+  cell.className = "forecast-temp-cell";
+  cell.setAttribute("aria-label", `Max ${day.max}, min ${day.min}`);
+  value.className = "forecast-temp-value";
+  max.className = "temp-max";
+  max.textContent = day.max;
+  separator.className = "forecast-temp-separator";
+  separator.setAttribute("aria-hidden", "true");
+  separator.textContent = "/";
+  min.className = "temp-min";
+  min.textContent = day.min;
+  value.append(max, separator, min);
+  cell.appendChild(value);
+
   return cell;
 }
 
@@ -1053,7 +1076,7 @@ function createHourlyForecastRow(day) {
   row.className = "forecast-hourly-row";
   row.id = getForecastDetailsId(day.key);
   cell.className = "forecast-hourly-cell";
-  cell.colSpan = 6;
+  cell.colSpan = 5;
   panel.className = "hourly-forecast";
   panel.setAttribute("role", "region");
   panel.setAttribute("aria-label", `Hourly forecast for ${day.fullDay}`);

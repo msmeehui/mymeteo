@@ -31,7 +31,7 @@
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin=""
     />
-    <link rel="stylesheet" href="styles.css?v=20260523-14" />
+    <link rel="stylesheet" href="styles.css?v=20260527-14" />
   </head>
   <body>
     <main class="weather-app" aria-live="polite">
@@ -105,6 +105,29 @@
         </div>
       </header>
 
+      <div class="weather-tabs" role="tablist" aria-label="Weather view">
+        <button
+          class="weather-tab is-active"
+          id="rainTab"
+          type="button"
+          role="tab"
+          aria-selected="true"
+          aria-controls="radarPanel"
+        >
+          Today
+        </button>
+        <button
+          class="weather-tab"
+          id="forecastTab"
+          type="button"
+          role="tab"
+          aria-selected="false"
+          aria-controls="forecastPanel"
+        >
+          5 days
+        </button>
+      </div>
+
       <section class="now-panel" aria-label="Current weather">
         <div class="current">
           <div class="condition-cluster">
@@ -122,6 +145,7 @@
             <p class="condition" id="conditionLabel">Checking the sky</p>
           </div>
           <div class="temperature-cluster">
+            <span class="current-temp-label">Temp</span>
             <p class="temp" id="currentTemp">--°</p>
             <dl class="temperature-range" aria-label="Daily temperature range">
               <div>
@@ -151,29 +175,6 @@
           </div>
         </div>
       </section>
-
-      <div class="weather-tabs" role="tablist" aria-label="Weather view">
-        <button
-          class="weather-tab is-active"
-          id="rainTab"
-          type="button"
-          role="tab"
-          aria-selected="true"
-          aria-controls="radarPanel"
-        >
-          Rain
-        </button>
-        <button
-          class="weather-tab"
-          id="forecastTab"
-          type="button"
-          role="tab"
-          aria-selected="false"
-          aria-controls="forecastPanel"
-        >
-          5 days
-        </button>
-      </div>
 
       <section class="radar-panel" id="radarPanel" aria-label="Rain" role="tabpanel" aria-labelledby="rainTab">
         <div class="radar-head">
@@ -207,15 +208,14 @@
             <tr>
               <th scope="col">Day</th>
               <th scope="col">Sky</th>
-              <th scope="col">Max</th>
-              <th scope="col">Min</th>
+              <th scope="col">Temp</th>
               <th scope="col">Rain</th>
               <th scope="col">Wind</th>
             </tr>
           </thead>
           <tbody id="forecastBody">
             <tr>
-              <td class="forecast-empty" colspan="6">Loading forecast...</td>
+              <td class="forecast-empty" colspan="5">Loading forecast...</td>
             </tr>
           </tbody>
         </table>
@@ -334,6 +334,11 @@
               <span class="info-section-chevron" aria-hidden="true"></span>
             </summary>
             <div class="info-section-body changelog">
+              <h3>27 May 2026</h3>
+              <ul>
+                <li>Moved up the tabs on mobile and other small visual changes.</li>
+              </ul>
+
               <h3>23 May 2026</h3>
               <ul>
                 <li>Added hourly forecasts inside the 5-day forecast.</li>
@@ -378,6 +383,6 @@
       crossorigin=""
     ></script>
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-    <script src="app.js?v=20260525-2"></script>
+    <script src="app.js?v=20260527-2"></script>
   </body>
 </html>
