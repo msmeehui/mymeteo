@@ -260,7 +260,6 @@ let locationSearchAbortController;
 let sliderTimestampTimer;
 let buienradarPreloadTimer;
 let weatherData;
-let activeRadarDate;
 let activeMobileView = "rain";
 let expandedForecastDayKey;
 let selectedLocation = loadStoredLocation() || DEFAULT_LOCATION;
@@ -774,7 +773,7 @@ function renderWeather(data) {
   elements.updatedAt.classList.remove("error");
 
   renderFiveDayForecast(data);
-  renderTimedWeather(getActiveRadarDate() || new Date(current.time * 1000));
+  renderCurrentWeather();
 }
 
 function renderCurrentTemperatureRange(temperatureRange) {
@@ -793,63 +792,22 @@ function renderCurrentPrecipitation(precipitation) {
   renderCurrentPrecipitationIcon(precipitation);
 }
 
-function renderTimedWeather(date) {
+function renderCurrentWeather() {
   if (!weatherData) {
     return;
   }
 
   const current = weatherData.current;
-  const currentSnapshot = {
+  const snapshot = {
     condition: getCondition(current.weather_code, current.is_day),
     temperature: current.temperature_2m,
     windDirection: current.wind_direction_10m,
     windSpeed: current.wind_speed_10m,
     time: current.time,
   };
-  const currentDate = new Date(current.time * 1000);
-  const isCurrentTime = !date || Math.abs(date - currentDate) < 30 * 60 * 1000;
-  const snapshot = isCurrentTime ? currentSnapshot : getHourlyWeatherSnapshot(date, weatherData.hourly) || currentSnapshot;
 
   renderTimedCondition(snapshot.condition);
   renderTemperatureAndWind(snapshot);
-}
-
-function getHourlyWeatherSnapshot(date, hourly) {
-  if (!date || !hourly?.time?.length) {
-    return undefined;
-  }
-
-  const index = getClosestTimeIndex(hourly.time, date.getTime() / 1000);
-  if (index < 0) {
-    return undefined;
-  }
-
-  return {
-    condition: getCondition(hourly.weather_code?.[index], hourly.is_day?.[index] ?? isForecastHourDaytime(hourly.time[index])),
-    temperature: hourly.temperature_2m?.[index],
-    windDirection: hourly.wind_direction_10m?.[index],
-    windSpeed: hourly.wind_speed_10m?.[index],
-    time: hourly.time[index],
-  };
-}
-
-function getClosestTimeIndex(times, targetTime) {
-  if (!times?.length || !Number.isFinite(targetTime)) {
-    return -1;
-  }
-
-  let closestIndex = 0;
-  let closestDistance = Math.abs(times[0] - targetTime);
-
-  for (let index = 1; index < times.length; index += 1) {
-    const distance = Math.abs(times[index] - targetTime);
-    if (distance < closestDistance) {
-      closestDistance = distance;
-      closestIndex = index;
-    }
-  }
-
-  return closestIndex;
 }
 
 function renderTimedCondition(condition) {
@@ -859,7 +817,7 @@ function renderTimedCondition(condition) {
 
 function renderTemperatureAndWind({ temperature, windDirection, windSpeed, time }) {
   elements.currentTemp.textContent = formatOptionalTemperature(temperature);
-  elements.currentTemp.title = time ? `Forecast for ${formatTime(time)}` : "";
+  elements.currentTemp.title = time ? `Weather observation ${formatTime(time)}` : "";
 
   if (!Number.isFinite(windDirection) || !Number.isFinite(windSpeed)) {
     elements.windText.textContent = "--";
@@ -873,26 +831,13 @@ function renderTemperatureAndWind({ temperature, windDirection, windSpeed, time 
   const roundedWindSpeed = Math.round(windSpeed);
   const beaufort = kmhToBeaufort(roundedWindSpeed);
   const downwindDirection = (windDirection + 180) % 360;
-  const timeLabel = time ? `, forecast for ${formatTime(time)}` : "";
+  const timeLabel = time ? `, weather observation ${formatTime(time)}` : "";
 
   elements.windText.textContent = `${degreesToCompass(windDirection)} ${beaufort}`;
   elements.currentWind.setAttribute("aria-label", `Wind ${degreesToCompass(windDirection)} ${beaufort}`);
   elements.windText.title = `${roundedWindSpeed} km/h, blowing toward ${degreesToCompass(downwindDirection)}${timeLabel}`;
   elements.windArrow.style.transform = `rotate(${downwindDirection}deg)`;
   elements.windArrow.title = `Blowing toward ${degreesToCompass(downwindDirection)}${timeLabel}`;
-}
-
-function setActiveRadarDate(date) {
-  activeRadarDate = date;
-  renderTimedWeather(date);
-}
-
-function getActiveRadarDate() {
-  if (activeRadarDate) {
-    return activeRadarDate;
-  }
-
-  return getRadarDateForSlider(Number(elements.radarSlider.value) || 0);
 }
 
 function renderFiveDayForecast(data) {
@@ -1743,7 +1688,6 @@ function disableRadar(message) {
   clearLibreWxrRadar();
   clearBuienradarRadar();
   radarFrames = [];
-  setActiveRadarDate(undefined);
   elements.radarSlider.disabled = true;
   elements.radarSlider.max = "0";
   elements.radarSlider.value = "0";
@@ -1791,7 +1735,6 @@ function setLibreWxrRadarPosition(value) {
   elements.rainForecastBadge.textContent = label;
   elements.radarSlider.setAttribute("aria-valuetext", label);
   elements.radarTime.classList.remove("error");
-  setActiveRadarDate(displayDate);
 }
 
 function handleRadarSliderInput(value) {
@@ -1841,11 +1784,6 @@ function setBuienradarFramePosition(value) {
   elements.radarSlider.value = String(Math.round(framePosition * 100));
   elements.radarSlider.setAttribute("aria-valuetext", label);
   elements.radarTime.classList.remove("error");
-  setActiveRadarDate(frameDate);
-}
-
-function getRadarDateForSlider(value) {
-  return getBuienradarDateForSlider(value) || getLibreWxrDateForSlider(value);
 }
 
 function getRadarTimeRange() {
