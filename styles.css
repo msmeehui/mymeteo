@@ -373,8 +373,9 @@ h1 {
 .temperature-cluster {
   min-width: 0;
   display: grid;
-  grid-template-rows: 1fr auto;
-  gap: 4px;
+  grid-template-rows: auto auto;
+  align-content: center;
+  gap: 6px;
   justify-items: start;
   align-self: stretch;
 }
@@ -465,8 +466,9 @@ h1 {
   min-width: 0;
   align-self: stretch;
   display: grid;
-  grid-template-rows: auto 1fr auto;
-  gap: 0;
+  grid-template-rows: auto auto;
+  align-content: center;
+  gap: 16px;
   justify-items: start;
 }
 
@@ -479,8 +481,8 @@ h1 {
 }
 
 .current-rain {
-  grid-row: 3;
-  align-self: end;
+  grid-row: 2;
+  align-self: start;
 }
 
 .current-temp-label,
@@ -1144,13 +1146,24 @@ input[type="range"]::-moz-range-thumb {
   white-space: nowrap;
 }
 
-.current-rain-icon,
-.forecast-rain-icon,
-.hourly-rain-icon {
+.current-precipitation-icon {
   width: 8px;
   height: 15px;
   flex: 0 0 8px;
   color: #238fc7;
+}
+
+.forecast-precipitation-icon,
+.hourly-precipitation-icon {
+  width: 8px;
+  height: 14px;
+  flex: 0 0 8px;
+  color: #238fc7;
+}
+
+.precipitation-icon--snow {
+  width: 12px;
+  flex-basis: 12px;
 }
 
 .forecast-temp-value {
@@ -1529,7 +1542,7 @@ input[type="range"]::-moz-range-thumb {
   }
 
   .temperature-cluster {
-    gap: 4px;
+    gap: 6px;
   }
 
   .temperature-range {
@@ -1537,7 +1550,7 @@ input[type="range"]::-moz-range-thumb {
   }
 
   .supporting-readout {
-    gap: 0;
+    gap: 14px;
   }
 
   .current-wind {
