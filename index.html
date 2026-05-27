@@ -31,7 +31,7 @@
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin=""
     />
-    <link rel="stylesheet" href="styles.css?v=20260527-14" />
+    <link rel="stylesheet" href="styles.css?v=20260527-24" />
   </head>
   <body>
     <main class="weather-app" aria-live="polite">
@@ -145,7 +145,7 @@
             <p class="condition" id="conditionLabel">Checking the sky</p>
           </div>
           <div class="temperature-cluster">
-            <span class="current-temp-label">Temp</span>
+            <span class="current-temp-label visually-hidden">Temp</span>
             <p class="temp" id="currentTemp">--°</p>
             <dl class="temperature-range" aria-label="Daily temperature range">
               <div>
@@ -160,7 +160,7 @@
           </div>
           <div class="supporting-readout">
             <div class="current-wind" aria-label="Wind">
-              <span class="current-wind-label">Wind</span>
+              <span class="current-wind-label visually-hidden">Wind</span>
               <span class="wind-value">
                 <span class="wind-arrow" id="windArrow" aria-hidden="true"></span>
                 <span id="windText">--</span>
@@ -168,8 +168,20 @@
             </div>
             <dl class="metrics current-rain" aria-label="Daily rain chance">
               <div>
-                <dt>Rain</dt>
-                <dd id="rainTotal">--%</dd>
+                <dt class="visually-hidden">Rain</dt>
+                <dd class="current-rain-value">
+                  <span class="current-precipitation-value">
+                    <svg
+                      class="current-rain-icon"
+                      viewBox="7 2 10 17"
+                      fill="currentColor"
+                      aria-hidden="true"
+                    >
+                      <path d="M12 2.6c-3.05 3.8-5 6.95-5 10.45a5 5 0 0 0 10 0c0-3.5-1.95-6.65-5-10.45Z"></path>
+                    </svg>
+                    <span id="rainTotal">--%</span>
+                  </span>
+                </dd>
               </div>
             </dl>
           </div>
@@ -204,7 +216,14 @@
           <h2>5 days</h2>
         </div>
         <table class="forecast-table">
-          <thead>
+          <colgroup>
+            <col class="forecast-day-col" />
+            <col class="forecast-sky-col" />
+            <col class="forecast-temp-col" />
+            <col class="forecast-rain-col" />
+            <col class="forecast-wind-col" />
+          </colgroup>
+          <thead class="forecast-table-head">
             <tr>
               <th scope="col">Day</th>
               <th scope="col">Sky</th>
@@ -383,6 +402,6 @@
       crossorigin=""
     ></script>
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-    <script src="app.js?v=20260527-2"></script>
+    <script src="app.js?v=20260527-9"></script>
   </body>
 </html>

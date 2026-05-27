@@ -373,7 +373,7 @@ h1 {
 .temperature-cluster {
   min-width: 0;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: 1fr auto;
   gap: 4px;
   justify-items: start;
   align-self: stretch;
@@ -1007,6 +1007,16 @@ input[type="range"]::-moz-range-thumb {
   table-layout: fixed;
 }
 
+.forecast-table-head {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
 .forecast-table th {
   padding: 0 5px 7px;
   color: var(--muted);
@@ -1018,23 +1028,23 @@ input[type="range"]::-moz-range-thumb {
   text-transform: uppercase;
 }
 
-.forecast-table th:nth-child(1) {
+.forecast-day-col {
   width: 18%;
 }
 
-.forecast-table th:nth-child(2) {
+.forecast-sky-col {
   width: 14%;
 }
 
-.forecast-table th:nth-child(3) {
+.forecast-temp-col {
   width: 26%;
 }
 
-.forecast-table th:nth-child(4) {
+.forecast-rain-col {
   width: 18%;
 }
 
-.forecast-table th:nth-child(5) {
+.forecast-wind-col {
   width: 24%;
 }
 
@@ -1119,6 +1129,28 @@ input[type="range"]::-moz-range-thumb {
 
 .forecast-temp-cell {
   text-align: left;
+}
+
+.forecast-rain-cell {
+  text-align: left;
+}
+
+.current-precipitation-value,
+.forecast-precipitation-value,
+.hourly-precipitation-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.current-rain-icon,
+.forecast-rain-icon,
+.hourly-rain-icon {
+  width: 8px;
+  height: 15px;
+  flex: 0 0 8px;
+  color: #238fc7;
 }
 
 .forecast-temp-value {
@@ -1630,7 +1662,7 @@ input[type="range"]::-moz-range-thumb {
   }
 
   .forecast-panel {
-    padding: 16px 0 0;
+    padding: 10px 0 0;
     gap: 8px;
   }
 
@@ -1650,6 +1682,18 @@ input[type="range"]::-moz-range-thumb {
   .forecast-table td {
     padding: 9px 3px;
     font-size: 1rem;
+  }
+
+  .forecast-day-row:first-child > td {
+    border-top: 0;
+  }
+
+  .forecast-table td:nth-child(4) {
+    padding-right: 7px;
+  }
+
+  .forecast-table td:nth-child(5) {
+    padding-left: 7px;
   }
 
   .forecast-condition-mark {
@@ -1762,6 +1806,14 @@ input[type="range"]::-moz-range-thumb {
     padding-right: 2px;
     padding-left: 2px;
     font-size: 0.9rem;
+  }
+
+  .forecast-table td:nth-child(4) {
+    padding-right: 6px;
+  }
+
+  .forecast-table td:nth-child(5) {
+    padding-left: 6px;
   }
 
   .forecast-day-button {
@@ -2058,4 +2110,17 @@ input[type="range"]::-moz-range-thumb {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 10px;
   }
+}
+
+.hourly-head-row {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+  border: 0;
 }

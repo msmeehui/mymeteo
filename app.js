@@ -55,6 +55,7 @@ const elements = {
   currentPrecipMetric: document.querySelector(".current-rain"),
   currentPrecipLabel: document.querySelector(".current-rain dt"),
   rainTotal: document.querySelector("#rainTotal"),
+  currentWind: document.querySelector(".current-wind"),
   windText: document.querySelector("#windText"),
   windArrow: document.querySelector("#windArrow"),
   rainTab: document.querySelector("#rainTab"),
@@ -786,7 +787,7 @@ function renderCurrentPrecipitation(precipitation) {
   elements.currentPrecipLabel.textContent = precipitation.label;
   elements.rainTotal.textContent = precipitation.value;
   elements.rainTotal.title = precipitation.ariaLabel;
-  elements.currentPrecipMetric.setAttribute("aria-label", `Daily ${precipitation.label.toLowerCase()} chance`);
+  elements.currentPrecipMetric.setAttribute("aria-label", `Daily ${precipitation.ariaLabel.toLowerCase()}`);
 }
 
 function renderTimedWeather(date) {
@@ -860,6 +861,7 @@ function renderTemperatureAndWind({ temperature, windDirection, windSpeed, time 
   if (!Number.isFinite(windDirection) || !Number.isFinite(windSpeed)) {
     elements.windText.textContent = "--";
     elements.windText.title = "";
+    elements.currentWind.setAttribute("aria-label", "Wind unavailable");
     elements.windArrow.style.transform = "";
     elements.windArrow.title = "";
     return;
@@ -871,6 +873,7 @@ function renderTemperatureAndWind({ temperature, windDirection, windSpeed, time 
   const timeLabel = time ? `, forecast for ${formatTime(time)}` : "";
 
   elements.windText.textContent = `${degreesToCompass(windDirection)} ${beaufort}`;
+  elements.currentWind.setAttribute("aria-label", `Wind ${degreesToCompass(windDirection)} ${beaufort}`);
   elements.windText.title = `${roundedWindSpeed} km/h, blowing toward ${degreesToCompass(downwindDirection)}${timeLabel}`;
   elements.windArrow.style.transform = `rotate(${downwindDirection}deg)`;
   elements.windArrow.title = `Blowing toward ${degreesToCompass(downwindDirection)}${timeLabel}`;
@@ -981,7 +984,7 @@ function createForecastRow(day, isExpanded) {
     createDayCell(day, isExpanded),
     createIconCell(day.condition),
     createForecastTemperatureCell(day),
-    createCell(day.precipitation.value),
+    createPrecipitationCell(day.precipitation),
     createCell(day.wind, "forecast-wind"),
   );
   return row;
@@ -1038,6 +1041,37 @@ function createForecastTemperatureCell(day) {
   cell.appendChild(value);
 
   return cell;
+}
+
+function createPrecipitationCell(precipitation) {
+  const cell = document.createElement("td");
+  const value = document.createElement("span");
+  const amount = document.createElement("span");
+
+  cell.className = "forecast-rain-cell";
+  cell.title = precipitation.ariaLabel;
+  cell.setAttribute("aria-label", precipitation.ariaLabel);
+  value.className = "forecast-precipitation-value";
+  value.setAttribute("aria-hidden", "true");
+  amount.textContent = precipitation.value;
+  value.append(createDropletIcon(), amount);
+  cell.appendChild(value);
+
+  return cell;
+}
+
+function createDropletIcon(className = "forecast-rain-icon") {
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+
+  icon.classList.add(className);
+  icon.setAttribute("viewBox", "7 2 10 17");
+  icon.setAttribute("fill", "currentColor");
+  icon.setAttribute("aria-hidden", "true");
+  path.setAttribute("d", "M12 2.6c-3.05 3.8-5 6.95-5 10.45a5 5 0 0 0 10 0c0-3.5-1.95-6.65-5-10.45Z");
+  icon.appendChild(path);
+
+  return icon;
 }
 
 function createIconCell(condition) {
@@ -1129,7 +1163,7 @@ function createHourlyDataRow(hour) {
     createHourlyTextCell(hour.time, "hourly-time"),
     createHourlyIconCell(hour.condition),
     createHourlyTextCell(hour.temperature, "hourly-temp"),
-    createHourlyTextCell(hour.precipitation.value, "hourly-rain"),
+    createHourlyPrecipitationCell(hour.precipitation),
     createHourlyTextCell(hour.wind, "hourly-wind"),
   );
   return row;
@@ -1140,6 +1174,24 @@ function createHourlyTextCell(text, className, role = "cell") {
   cell.className = className;
   cell.setAttribute("role", role);
   cell.textContent = text;
+  return cell;
+}
+
+function createHourlyPrecipitationCell(precipitation) {
+  const cell = document.createElement("span");
+  const value = document.createElement("span");
+  const amount = document.createElement("span");
+
+  cell.className = "hourly-rain";
+  cell.setAttribute("role", "cell");
+  cell.setAttribute("aria-label", precipitation.ariaLabel);
+  cell.title = precipitation.ariaLabel;
+  value.className = "hourly-precipitation-value";
+  value.setAttribute("aria-hidden", "true");
+  amount.textContent = precipitation.value;
+  value.append(createDropletIcon("hourly-rain-icon"), amount);
+  cell.appendChild(value);
+
   return cell;
 }
 
