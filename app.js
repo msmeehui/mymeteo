@@ -50,6 +50,7 @@ const elements = {
   nowPanel: document.querySelector(".now-panel"),
   currentTemp: document.querySelector("#currentTemp"),
   conditionLabel: document.querySelector("#conditionLabel"),
+  temperatureRange: document.querySelector(".temperature-range"),
   maxTemp: document.querySelector("#maxTemp"),
   minTemp: document.querySelector("#minTemp"),
   currentPrecipMetric: document.querySelector(".current-rain"),
@@ -763,18 +764,10 @@ async function loadWeather() {
 function renderWeather(data) {
   weatherData = data;
   const current = data.current;
-  const daily = data.daily;
-  const todayPrecipitation = buildPrecipitationChance({
-    chance: daily.precipitation_probability_max?.[0],
-    weatherCode: daily.weather_code?.[0],
-    rainAmount: daily.rain_sum?.[0],
-    showersAmount: daily.showers_sum?.[0],
-    snowfallAmount: daily.snowfall_sum?.[0],
-    temperature: current.temperature_2m,
-  });
+  const todayPrecipitation = buildCurrentDayPrecipitation(data);
+  const todayTemperatureRange = buildCurrentDayTemperatureRange(data);
 
-  elements.maxTemp.textContent = formatOptionalTemperature(daily.temperature_2m_max?.[0]);
-  elements.minTemp.textContent = formatOptionalTemperature(daily.temperature_2m_min?.[0]);
+  renderCurrentTemperatureRange(todayTemperatureRange);
   renderCurrentPrecipitation(todayPrecipitation);
   elements.updatedAt.textContent = `Checked ${formatClock(new Date())}`;
   elements.updatedAt.title = `Weather observation ${formatTime(current.time)}`;
@@ -784,11 +777,19 @@ function renderWeather(data) {
   renderTimedWeather(getActiveRadarDate() || new Date(current.time * 1000));
 }
 
+function renderCurrentTemperatureRange(temperatureRange) {
+  elements.maxTemp.textContent = temperatureRange.max;
+  elements.minTemp.textContent = temperatureRange.min;
+  elements.maxTemp.title = temperatureRange.maxTitle;
+  elements.minTemp.title = temperatureRange.minTitle;
+  elements.temperatureRange.setAttribute("aria-label", temperatureRange.ariaLabel);
+}
+
 function renderCurrentPrecipitation(precipitation) {
   elements.currentPrecipLabel.textContent = precipitation.label;
   elements.rainTotal.textContent = precipitation.value;
   elements.rainTotal.title = precipitation.ariaLabel;
-  elements.currentPrecipMetric.setAttribute("aria-label", `Daily ${precipitation.ariaLabel.toLowerCase()}`);
+  elements.currentPrecipMetric.setAttribute("aria-label", `Remaining today ${precipitation.ariaLabel.toLowerCase()}`);
   renderCurrentPrecipitationIcon(precipitation);
 }
 
@@ -923,6 +924,80 @@ function renderDailyPrecipitationHeader(days) {
   }
 }
 
+function buildCurrentDayTemperatureRange(data) {
+  const { todayKey, currentHour } = getForecastTiming(data);
+  const hourlyTemperatures = getForecastHourEntries(data?.hourly, todayKey, {
+    currentHour,
+    isToday: true,
+  })
+    .map(({ index }) => data.hourly.temperature_2m?.[index])
+    .filter(Number.isFinite);
+  const temperatures = [...hourlyTemperatures];
+
+  if (Number.isFinite(data?.current?.temperature_2m)) {
+    temperatures.push(data.current.temperature_2m);
+  }
+
+  if (!temperatures.length) {
+    return buildDailyTemperatureRange(data?.daily, 0, true);
+  }
+
+  return buildTemperatureRange(Math.max(...temperatures), Math.min(...temperatures), true);
+}
+
+function buildDailyTemperatureRange(daily, index, isRemainingToday = false) {
+  return buildTemperatureRange(daily?.temperature_2m_max?.[index], daily?.temperature_2m_min?.[index], isRemainingToday);
+}
+
+function buildTemperatureRange(maxTemperature, minTemperature, isRemainingToday = false) {
+  const max = formatOptionalTemperature(maxTemperature);
+  const min = formatOptionalTemperature(minTemperature);
+  const prefix = isRemainingToday ? "Remaining today" : "Daily";
+
+  return {
+    max,
+    min,
+    maxTitle: `${prefix} max ${max}`,
+    minTitle: `${prefix} min ${min}`,
+    ariaLabel: `${prefix} temperature range, max ${max}, min ${min}`,
+  };
+}
+
+function buildCurrentDayPrecipitation(data) {
+  const current = data?.current || {};
+  const dailyPrecipitation = buildDailyPrecipitation(data?.daily, 0, current.temperature_2m);
+  const { todayKey, currentHour } = getForecastTiming(data);
+  const hours = buildHourlyForecastForDay(data?.hourly, todayKey, {
+    currentHour,
+    isToday: true,
+  });
+
+  return withHourlyPrecipitationChance(
+    dailyPrecipitation,
+    hours.map((hour) => hour.precipitation),
+  );
+}
+
+function buildDailyPrecipitation(daily, index, temperature) {
+  return buildPrecipitationChance({
+    chance: daily?.precipitation_probability_max?.[index],
+    weatherCode: daily?.weather_code?.[index],
+    rainAmount: daily?.rain_sum?.[index],
+    showersAmount: daily?.showers_sum?.[index],
+    snowfallAmount: daily?.snowfall_sum?.[index],
+    temperature,
+  });
+}
+
+function getForecastTiming(data) {
+  const currentTime = data?.current?.time ?? Date.now() / 1000;
+
+  return {
+    todayKey: formatDateKey(currentTime),
+    currentHour: getDatePart(toForecastDate(currentTime), "hour") || 0,
+  };
+}
+
 function buildFiveDayForecast(data) {
   const daily = data?.daily;
   const hourly = data?.hourly;
@@ -931,47 +1006,46 @@ function buildFiveDayForecast(data) {
     return [];
   }
 
-  const currentTime = data?.current?.time ?? Date.now() / 1000;
-  const todayKey = formatDateKey(currentTime);
-  const currentHour = getDatePart(toForecastDate(currentTime), "hour") || 0;
+  const { todayKey, currentHour } = getForecastTiming(data);
 
   return daily.time.slice(0, 5).map((time, index) => {
     const windSpeed = daily.wind_speed_10m_max?.[index];
     const windDirection = daily.wind_direction_10m_dominant?.[index];
     const condition = getCondition(daily.weather_code?.[index], true);
-    const dailyPrecipitation = buildPrecipitationChance({
-      chance: daily.precipitation_probability_max?.[index],
-      weatherCode: daily.weather_code?.[index],
-      rainAmount: daily.rain_sum?.[index],
-      showersAmount: daily.showers_sum?.[index],
-      snowfallAmount: daily.snowfall_sum?.[index],
-      temperature: daily.temperature_2m_max?.[index],
-    });
+    const dailyPrecipitation = buildDailyPrecipitation(daily, index, daily.temperature_2m_max?.[index]);
     const key = formatDateKey(time);
     const isToday = key === todayKey;
+    const temperatureRange = isToday
+      ? buildCurrentDayTemperatureRange(data)
+      : buildDailyTemperatureRange(daily, index);
 
     const hours = buildHourlyForecastForDay(hourly, key, {
       currentHour,
       isToday,
     });
-    const precipitation = withPrecipitationType(
+    const hourlyPrecipitations = hours.map((hour) => hour.precipitation);
+    const typedPrecipitation = withPrecipitationType(
       dailyPrecipitation,
-      getDominantPrecipitationType(hours.map((hour) => hour.precipitation), {
+      getDominantPrecipitationType(hourlyPrecipitations, {
         fallbackType: dailyPrecipitation.type,
       }),
     );
+    const precipitation = isToday
+      ? withHourlyPrecipitationChance(typedPrecipitation, hourlyPrecipitations)
+      : typedPrecipitation;
 
     return {
       key,
       day: formatWeekday(time),
       fullDay: formatWeekday(time, "long"),
       condition,
-      max: formatOptionalTemperature(daily.temperature_2m_max?.[index]),
-      min: formatOptionalTemperature(daily.temperature_2m_min?.[index]),
+      max: temperatureRange.max,
+      min: temperatureRange.min,
+      temperatureAriaLabel: temperatureRange.ariaLabel,
       precipitation,
       wind: formatOptionalWind(windDirection, windSpeed),
       hours,
-      hourlyPrecipitationLabel: getDominantPrecipitationLabel(hours.map((hour) => hour.precipitation), {
+      hourlyPrecipitationLabel: getDominantPrecipitationLabel(hourlyPrecipitations, {
         fallbackType: precipitation.type,
         minimumChance: meaningfulPrecipitationChanceThreshold,
       }),
@@ -1036,7 +1110,7 @@ function createForecastTemperatureCell(day) {
   const min = document.createElement("span");
 
   cell.className = "forecast-temp-cell";
-  cell.setAttribute("aria-label", `Max ${day.max}, min ${day.min}`);
+  cell.setAttribute("aria-label", day.temperatureAriaLabel || `Max ${day.max}, min ${day.min}`);
   value.className = "forecast-temp-value";
   max.className = "temp-max";
   max.textContent = day.max;
@@ -1272,10 +1346,7 @@ function buildHourlyForecastForDay(hourly, dayKey, { currentHour, isToday } = {}
     return [];
   }
 
-  return hourly.time
-    .map((time, index) => ({ time, index }))
-    .filter(({ time }) => formatDateKey(time) === dayKey)
-    .filter(({ time }) => !isToday || getDatePart(toForecastDate(time), "hour") >= currentHour)
+  return getForecastHourEntries(hourly, dayKey, { currentHour, isToday })
     .slice(0, 24)
     .map(({ time, index }) => {
       const isDay = hourly.is_day?.[index] ?? isForecastHourDaytime(time);
@@ -1294,6 +1365,17 @@ function buildHourlyForecastForDay(hourly, dayKey, { currentHour, isToday } = {}
         wind: formatOptionalWind(hourly.wind_direction_10m?.[index], hourly.wind_speed_10m?.[index]),
       };
     });
+}
+
+function getForecastHourEntries(hourly, dayKey, { currentHour, isToday } = {}) {
+  if (!hourly?.time?.length) {
+    return [];
+  }
+
+  return hourly.time
+    .map((time, index) => ({ time, index }))
+    .filter(({ time }) => formatDateKey(time) === dayKey)
+    .filter(({ time }) => !isToday || getDatePart(toForecastDate(time), "hour") >= currentHour);
 }
 
 function isForecastHourDaytime(time) {
@@ -2285,6 +2367,27 @@ function buildPrecipitationChance({ chance, weatherCode, rainAmount, showersAmou
   };
 }
 
+function withHourlyPrecipitationChance(precipitation, hourlyPrecipitations) {
+  const hourlyChance = getMaxPrecipitationChance(hourlyPrecipitations);
+
+  if (!Number.isFinite(hourlyChance)) {
+    return precipitation;
+  }
+
+  return withPrecipitationChance(precipitation, hourlyChance);
+}
+
+function withPrecipitationChance(precipitation, chance) {
+  const value = formatOptionalRainChance(chance);
+
+  return {
+    ...precipitation,
+    value,
+    chance,
+    ariaLabel: `${precipitation.label} chance ${value}`,
+  };
+}
+
 function withPrecipitationType(precipitation, type) {
   const normalizedType = type === "snow" ? "snow" : "rain";
 
@@ -2341,6 +2444,18 @@ function getDominantPrecipitationType(precipitations, { fallbackType = "rain", m
 
 function getDominantPrecipitationLabel(precipitations, options = {}) {
   return getPrecipitationLabel(getDominantPrecipitationType(precipitations, options));
+}
+
+function getMaxPrecipitationChance(precipitations) {
+  if (!Array.isArray(precipitations)) {
+    return undefined;
+  }
+
+  const chances = precipitations
+    .map((precipitation) => precipitation?.chance)
+    .filter(Number.isFinite);
+
+  return chances.length ? Math.max(...chances) : undefined;
 }
 
 function getPrecipitationLabel(type) {
