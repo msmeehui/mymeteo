@@ -235,6 +235,7 @@ const snowWeatherCodes = new Set([71, 73, 75, 77, 85, 86]);
 // Near-even rain/snow totals should read as snow in the compact label.
 const snowCloseSplitRatio = 0.85;
 const meaningfulPrecipitationChanceThreshold = 5;
+const precipitationChanceDisplayStep = 5;
 const freezingTemperatureThreshold = 0;
 const compassPoints = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 
@@ -2792,8 +2793,12 @@ function formatOptionalTemperature(value) {
   return Number.isFinite(value) ? formatTemperature(value) : "--°";
 }
 
+function roundRainChanceForDisplay(value) {
+  return Math.round(value / precipitationChanceDisplayStep) * precipitationChanceDisplayStep;
+}
+
 function formatOptionalRainChance(value) {
-  return Number.isFinite(value) ? `${Math.round(value)}%` : "--%";
+  return Number.isFinite(value) ? `${roundRainChanceForDisplay(value)}%` : "--%";
 }
 
 function buildPrecipitationChance({ chance, weatherCode, rainAmount, showersAmount, snowfallAmount, temperature }) {
