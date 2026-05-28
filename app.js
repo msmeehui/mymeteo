@@ -1317,9 +1317,6 @@ function buildFiveDayForecast(data) {
   const { todayKey, currentHour } = getForecastTiming(data);
 
   return daily.time.slice(0, 5).map((time, index) => {
-    const windSpeed = daily.wind_speed_10m_max?.[index];
-    const windDirection = daily.wind_direction_10m_dominant?.[index];
-    const condition = getCondition(daily.weather_code?.[index], true);
     const dailyPrecipitation = buildDailyPrecipitation(daily, index, daily.temperature_2m_max?.[index]);
     const key = formatDateKey(time);
     const isToday = key === todayKey;
@@ -1331,6 +1328,7 @@ function buildFiveDayForecast(data) {
       currentHour,
       isToday,
     });
+    const condition = buildDailyCondition(hours, daily.weather_code?.[index]);
     const hourlyPrecipitations = hours.map((hour) => hour.precipitation);
     const typedPrecipitation = withPrecipitationType(
       dailyPrecipitation,
@@ -1338,9 +1336,11 @@ function buildFiveDayForecast(data) {
         fallbackType: dailyPrecipitation.type,
       }),
     );
-    const precipitation = isToday
-      ? withHourlyPrecipitationChance(typedPrecipitation, hourlyPrecipitations)
-      : typedPrecipitation;
+    const precipitation = withHourlyPrecipitationChance(typedPrecipitation, hourlyPrecipitations);
+    const wind = buildDailyWind(hours, {
+      fallbackDirection: daily.wind_direction_10m_dominant?.[index],
+      fallbackSpeed: daily.wind_speed_10m_max?.[index],
+    });
 
     return {
       key,
@@ -1351,7 +1351,7 @@ function buildFiveDayForecast(data) {
       min: temperatureRange.min,
       temperatureAriaLabel: temperatureRange.ariaLabel,
       precipitation,
-      wind: formatOptionalWind(windDirection, windSpeed),
+      wind: formatOptionalWind(wind.direction, wind.speed),
       hours,
       hourlyPrecipitationLabel: getDominantPrecipitationLabel(hourlyPrecipitations, {
         fallbackType: precipitation.type,
@@ -1359,6 +1359,147 @@ function buildFiveDayForecast(data) {
       }),
     };
   });
+}
+
+function buildDailyCondition(hours, fallbackWeatherCode) {
+  const summaryHours = getDailyConditionHours(hours);
+  const weatherCode = getDominantWeatherCode(summaryHours, fallbackWeatherCode);
+  const hasDaylightHours = summaryHours.some((hour) => hour.isDaytime);
+  const isDay = hasDaylightHours || !summaryHours.length;
+
+  return getCondition(weatherCode, isDay);
+}
+
+function getDailyConditionHours(hours) {
+  if (!Array.isArray(hours) || !hours.length) {
+    return [];
+  }
+
+  const daylightHours = hours.filter((hour) => hour.isDaytime);
+
+  if (daylightHours.length) {
+    return daylightHours;
+  }
+
+  return hours;
+}
+
+function getDominantWeatherCode(hours, fallbackWeatherCode) {
+  const weatherCodeScores = new Map();
+
+  hours.forEach((hour, index) => {
+    if (!Number.isFinite(hour.weatherCode)) {
+      return;
+    }
+
+    const score = weatherCodeScores.get(hour.weatherCode) || {
+      count: 0,
+      firstIndex: index,
+      severity: getWeatherCodeSeverity(hour.weatherCode),
+      precipitationChance: 0,
+    };
+    score.count += 1;
+    score.precipitationChance += Number.isFinite(hour.precipitation?.chance) ? hour.precipitation.chance : 0;
+    weatherCodeScores.set(hour.weatherCode, score);
+  });
+
+  if (!weatherCodeScores.size) {
+    return fallbackWeatherCode;
+  }
+
+  return [...weatherCodeScores.entries()].sort(([, a], [, b]) => {
+    if (b.count !== a.count) {
+      return b.count - a.count;
+    }
+
+    if (b.precipitationChance !== a.precipitationChance) {
+      return b.precipitationChance - a.precipitationChance;
+    }
+
+    if (b.severity !== a.severity) {
+      return b.severity - a.severity;
+    }
+
+    return a.firstIndex - b.firstIndex;
+  })[0][0];
+}
+
+function getWeatherCodeSeverity(code) {
+  const severityByCode = {
+    0: 0,
+    1: 1,
+    2: 2,
+    3: 3,
+    45: 4,
+    48: 4,
+    51: 5,
+    53: 6,
+    55: 7,
+    56: 7,
+    57: 8,
+    61: 7,
+    63: 8,
+    65: 9,
+    66: 8,
+    67: 9,
+    71: 7,
+    73: 8,
+    75: 9,
+    77: 7,
+    80: 7,
+    81: 8,
+    82: 9,
+    85: 8,
+    86: 9,
+    95: 10,
+    96: 11,
+    99: 11,
+  };
+
+  return severityByCode[code] ?? 0;
+}
+
+function buildDailyWind(hours, { fallbackDirection, fallbackSpeed } = {}) {
+  const windEntries = Array.isArray(hours)
+    ? hours
+        .map((hour) => ({
+          direction: hour.windDirection,
+          speed: hour.windSpeed,
+        }))
+        .filter(({ direction, speed }) => Number.isFinite(direction) && Number.isFinite(speed))
+    : [];
+
+  if (!windEntries.length) {
+    return {
+      direction: fallbackDirection,
+      speed: fallbackSpeed,
+    };
+  }
+
+  const directionGroups = windEntries.reduce((groups, entry) => {
+    const directionIndex = getCompassIndex(entry.direction);
+    const group = groups.get(directionIndex) || {
+      directionIndex,
+      speeds: [],
+      totalSpeed: 0,
+    };
+    group.speeds.push(entry.speed);
+    group.totalSpeed += entry.speed;
+    groups.set(directionIndex, group);
+    return groups;
+  }, new Map());
+  const dominantGroup = [...directionGroups.values()].sort((a, b) => {
+    if (b.speeds.length !== a.speeds.length) {
+      return b.speeds.length - a.speeds.length;
+    }
+
+    return b.totalSpeed - a.totalSpeed;
+  })[0];
+
+  return {
+    direction: dominantGroup.directionIndex * 45,
+    speed: getMedian(dominantGroup.speeds),
+  };
 }
 
 function createForecastRow(day, isExpanded) {
@@ -1658,19 +1799,26 @@ function buildHourlyForecastForDay(hourly, dayKey, { currentHour, isToday } = {}
     .slice(0, 24)
     .map(({ time, index }) => {
       const isDay = hourly.is_day?.[index] ?? isForecastHourDaytime(time);
+      const weatherCode = hourly.weather_code?.[index];
+      const windDirection = hourly.wind_direction_10m?.[index];
+      const windSpeed = hourly.wind_speed_10m?.[index];
       return {
         time: formatTime(time),
-        condition: getCondition(hourly.weather_code?.[index], isDay),
+        weatherCode,
+        isDaytime: isDay !== 0 && isDay !== false,
+        condition: getCondition(weatherCode, isDay),
         temperature: formatOptionalTemperature(hourly.temperature_2m?.[index]),
         precipitation: buildPrecipitationChance({
           chance: hourly.precipitation_probability?.[index],
-          weatherCode: hourly.weather_code?.[index],
+          weatherCode,
           rainAmount: hourly.rain?.[index],
           showersAmount: hourly.showers?.[index],
           snowfallAmount: hourly.snowfall?.[index],
           temperature: hourly.temperature_2m?.[index],
         }),
-        wind: formatOptionalWind(hourly.wind_direction_10m?.[index], hourly.wind_speed_10m?.[index]),
+        windDirection,
+        windSpeed,
+        wind: formatOptionalWind(windDirection, windSpeed),
       };
     });
 }
@@ -2797,6 +2945,20 @@ function formatOptionalWind(direction, speed) {
   return `${degreesToCompass(direction)} ${kmhToBeaufort(Math.round(speed))}`;
 }
 
+function getMedian(values) {
+  const sortedValues = values.filter(Number.isFinite).sort((a, b) => a - b);
+
+  if (!sortedValues.length) {
+    return undefined;
+  }
+
+  const middle = Math.floor(sortedValues.length / 2);
+
+  return sortedValues.length % 2 === 0
+    ? (sortedValues[middle - 1] + sortedValues[middle]) / 2
+    : sortedValues[middle];
+}
+
 function formatWeekday(value, weekday = "short") {
   const date = toForecastDate(value);
 
@@ -2893,8 +3055,15 @@ function formatClock(date, timezone = selectedLocation.timezone) {
 }
 
 function degreesToCompass(degrees) {
-  const index = Math.round(degrees / 45) % compassPoints.length;
-  return compassPoints[index];
+  return compassPoints[getCompassIndex(degrees)];
+}
+
+function getCompassIndex(degrees) {
+  return Math.round(normalizeDegrees(degrees) / 45) % compassPoints.length;
+}
+
+function normalizeDegrees(degrees) {
+  return ((degrees % 360) + 360) % 360;
 }
 
 function kmhToBeaufort(kmh) {
