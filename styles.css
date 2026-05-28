@@ -1039,15 +1039,15 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .forecast-temp-col {
-  width: 26%;
+  width: 25%;
 }
 
 .forecast-rain-col {
-  width: 18%;
+  width: 22%;
 }
 
 .forecast-wind-col {
-  width: 24%;
+  width: 21%;
 }
 
 .forecast-table td {
@@ -1137,6 +1137,10 @@ input[type="range"]::-moz-range-thumb {
   text-align: left;
 }
 
+.forecast-wind {
+  text-align: left;
+}
+
 .current-precipitation-value,
 .forecast-precipitation-value,
 .hourly-precipitation-value {
@@ -1144,6 +1148,10 @@ input[type="range"]::-moz-range-thumb {
   align-items: center;
   gap: 5px;
   white-space: nowrap;
+}
+
+.forecast-precipitation-value {
+  gap: 4px;
 }
 
 .current-precipitation-icon {
@@ -1204,13 +1212,15 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .hourly-grid {
+  --hourly-grid-columns: minmax(38px, 0.8fr) minmax(28px, 0.56fr) minmax(36px, 0.72fr) minmax(78px, 1.42fr) minmax(38px, 0.76fr);
+
   display: grid;
 }
 
 .hourly-row {
   min-height: 31px;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: var(--hourly-grid-columns);
   align-items: center;
   gap: 5px;
   border-top: 1px solid rgb(216 208 192 / 0.58);
@@ -1237,6 +1247,42 @@ input[type="range"]::-moz-range-thumb {
   display: inline-grid;
   place-items: center;
   text-align: center;
+}
+
+.hourly-row > .hourly-rain {
+  justify-self: stretch;
+  text-align: left;
+}
+
+.hourly-row > .hourly-wind {
+  justify-self: stretch;
+  text-align: left;
+}
+
+.hourly-precipitation-value {
+  max-width: 100%;
+  gap: 4px;
+  justify-content: flex-start;
+}
+
+.hourly-precipitation-intensity {
+  color: var(--muted);
+  font-size: 0.78em;
+  font-weight: 560;
+}
+
+.hourly-precipitation-intensity-compact {
+  display: none;
+}
+
+@media (min-width: 760px) and (max-width: 980px) {
+  .hourly-precipitation-intensity.has-compact-label .hourly-precipitation-intensity-full {
+    display: none;
+  }
+
+  .hourly-precipitation-intensity.has-compact-label .hourly-precipitation-intensity-compact {
+    display: inline;
+  }
 }
 
 .hourly-condition-mark {
@@ -1731,7 +1777,6 @@ input[type="range"]::-moz-range-thumb {
 
   .hourly-row {
     min-height: 30px;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 4px;
   }
 
@@ -1748,6 +1793,14 @@ input[type="range"]::-moz-range-thumb {
   .hourly-weather-icon {
     width: 24px;
     height: 24px;
+  }
+
+  .hourly-precipitation-value {
+    gap: 4px;
+  }
+
+  .hourly-precipitation-intensity {
+    font-size: 0.72em;
   }
 
 }
@@ -1868,10 +1921,29 @@ input[type="range"]::-moz-range-thumb {
     padding-left: 5px;
   }
 
+  .hourly-grid {
+    --hourly-grid-columns: minmax(36px, 0.8fr) minmax(24px, 0.52fr) minmax(34px, 0.68fr) minmax(76px, 1.48fr) minmax(36px, 0.72fr);
+  }
+
   .hourly-row {
     min-height: 28px;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 3px;
+  }
+
+  .hourly-precipitation-value {
+    gap: 3px;
+  }
+
+  .hourly-precipitation-intensity {
+    font-size: 0.69em;
+  }
+
+  .hourly-precipitation-intensity.has-compact-label .hourly-precipitation-intensity-full {
+    display: none;
+  }
+
+  .hourly-precipitation-intensity.has-compact-label .hourly-precipitation-intensity-compact {
+    display: inline;
   }
 
   .hourly-head-row {
@@ -2042,7 +2114,6 @@ input[type="range"]::-moz-range-thumb {
 
   .hourly-row {
     min-height: 28px;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 4px;
   }
 

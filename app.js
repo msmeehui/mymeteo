@@ -236,6 +236,11 @@ const snowWeatherCodes = new Set([71, 73, 75, 77, 85, 86]);
 const snowCloseSplitRatio = 0.85;
 const meaningfulPrecipitationChanceThreshold = 5;
 const precipitationChanceDisplayStep = 5;
+const precipitationIntensityChanceThreshold = precipitationChanceDisplayStep;
+const precipitationIntensityThresholds = {
+  rain: { moderate: 1, heavy: 4 },
+  snow: { moderate: 0.5, heavy: 2 },
+};
 const freezingTemperatureThreshold = 0;
 const compassPoints = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 
@@ -1736,7 +1741,7 @@ function createHourlyDataRow(hour) {
   row.setAttribute("role", "row");
   row.setAttribute(
     "aria-label",
-    `${hour.time}, ${hour.condition.label}, ${hour.temperature}, precipitation chance ${hour.precipitation.value}, wind ${hour.wind}`,
+    `${hour.time}, ${hour.condition.label}, ${hour.temperature}, ${hour.precipitation.ariaLabel}, wind ${hour.wind}`,
   );
   row.append(
     createHourlyTextCell(hour.time, "hourly-time"),
@@ -1769,6 +1774,28 @@ function createHourlyPrecipitationCell(precipitation) {
   value.setAttribute("aria-hidden", "true");
   amount.textContent = precipitation.value;
   value.append(createPrecipitationIcon(precipitation, "hourly-precipitation-icon"), amount);
+
+  if (precipitation.intensity) {
+    const intensity = document.createElement("span");
+    const fullIntensity = document.createElement("span");
+    const compactIntensity = getCompactPrecipitationIntensity(precipitation.intensity);
+
+    intensity.className = "hourly-precipitation-intensity";
+    fullIntensity.className = "hourly-precipitation-intensity-full";
+    fullIntensity.textContent = precipitation.intensity;
+    intensity.appendChild(fullIntensity);
+
+    if (compactIntensity !== precipitation.intensity) {
+      const compact = document.createElement("span");
+      intensity.classList.add("has-compact-label");
+      compact.className = "hourly-precipitation-intensity-compact";
+      compact.textContent = compactIntensity;
+      intensity.appendChild(compact);
+    }
+
+    value.appendChild(intensity);
+  }
+
   cell.appendChild(value);
 
   return cell;
@@ -1816,6 +1843,7 @@ function buildHourlyForecastForDay(hourly, dayKey, { currentHour, isToday } = {}
           showersAmount: hourly.showers?.[index],
           snowfallAmount: hourly.snowfall?.[index],
           temperature: hourly.temperature_2m?.[index],
+          includeIntensity: true,
         }),
         windDirection,
         windSpeed,
@@ -2801,7 +2829,15 @@ function formatOptionalRainChance(value) {
   return Number.isFinite(value) ? `${roundRainChanceForDisplay(value)}%` : "--%";
 }
 
-function buildPrecipitationChance({ chance, weatherCode, rainAmount, showersAmount, snowfallAmount, temperature }) {
+function buildPrecipitationChance({
+  chance,
+  weatherCode,
+  rainAmount,
+  showersAmount,
+  snowfallAmount,
+  temperature,
+  includeIntensity = false,
+}) {
   const type = getPrecipitationType({
     weatherCode,
     rainAmount,
@@ -2811,13 +2847,24 @@ function buildPrecipitationChance({ chance, weatherCode, rainAmount, showersAmou
   });
   const label = getPrecipitationLabel(type);
   const value = formatOptionalRainChance(chance);
+  const displayChance = Number.isFinite(chance) ? roundRainChanceForDisplay(chance) : undefined;
+  const amount = getPrecipitationAmount({
+    type,
+    rainAmount,
+    showersAmount,
+    snowfallAmount,
+  });
+  const intensity = includeIntensity ? getPrecipitationIntensity(type, amount, displayChance) : undefined;
+  const ariaLabel = `${label} chance ${value}${intensity ? `, ${intensity}` : ""}`;
 
   return {
     type,
     label,
     value,
     chance,
-    ariaLabel: `${label} chance ${value}`,
+    amount,
+    intensity,
+    ariaLabel,
   };
 }
 
@@ -2914,6 +2961,43 @@ function getMaxPrecipitationChance(precipitations) {
 
 function getPrecipitationLabel(type) {
   return type === "snow" ? "Snow" : "Rain";
+}
+
+function getPrecipitationIntensity(type, amount, displayChance) {
+  if (
+    !Number.isFinite(displayChance) ||
+    displayChance < precipitationIntensityChanceThreshold
+  ) {
+    return undefined;
+  }
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return "light";
+  }
+
+  const thresholds = precipitationIntensityThresholds[type === "snow" ? "snow" : "rain"];
+
+  if (amount >= thresholds.heavy) {
+    return "heavy";
+  }
+
+  if (amount >= thresholds.moderate) {
+    return "moderate";
+  }
+
+  return "light";
+}
+
+function getCompactPrecipitationIntensity(intensity) {
+  return intensity === "moderate" ? "mod." : intensity;
+}
+
+function getPrecipitationAmount({ type, rainAmount, showersAmount, snowfallAmount }) {
+  if (type === "snow") {
+    return Number.isFinite(snowfallAmount) ? snowfallAmount : undefined;
+  }
+
+  return sumFiniteValues(rainAmount, showersAmount);
 }
 
 function getPrecipitationType({ weatherCode, rainAmount, showersAmount, snowfallAmount, temperature }) {
