@@ -722,7 +722,7 @@ h1 {
   grid-row: 1;
   align-self: center;
   margin-left: 16px;
-  transform: translateY(6px);
+  transform: translateY(-2px);
 }
 
 .radar-weather-card .current-rain {
@@ -1374,6 +1374,8 @@ input[type="range"]::-moz-range-thumb {
 
 .hourly-grid {
   --hourly-grid-columns: minmax(38px, 0.8fr) minmax(28px, 0.56fr) minmax(36px, 0.72fr) minmax(78px, 1.42fr) minmax(38px, 0.76fr);
+  --hourly-rain-inset: clamp(28px, 31%, 46px);
+  --hourly-wind-inset: 0px;
 
   display: grid;
 }
@@ -1412,11 +1414,15 @@ input[type="range"]::-moz-range-thumb {
 
 .hourly-row > .hourly-rain {
   justify-self: stretch;
+  display: flex;
+  justify-content: flex-start;
+  padding-left: var(--hourly-rain-inset);
   text-align: left;
 }
 
 .hourly-row > .hourly-wind {
   justify-self: stretch;
+  padding-left: var(--hourly-wind-inset);
   text-align: left;
 }
 
@@ -1430,10 +1436,6 @@ input[type="range"]::-moz-range-thumb {
   color: var(--muted);
   font-size: 0.78em;
   font-weight: 560;
-}
-
-.hourly-precipitation-intensity-compact {
-  display: none;
 }
 
 .hourly-condition-mark {
@@ -1893,7 +1895,7 @@ input[type="range"]::-moz-range-thumb {
   }
 
   .radar-weather-card .current-wind {
-    transform: translateY(4px);
+    transform: translateY(-2px);
   }
 
   .radar-weather-card .current-wind .wind-value,
@@ -1915,7 +1917,7 @@ input[type="range"]::-moz-range-thumb {
     white-space: nowrap;
   }
 
-  @media (max-width: 400px) {
+  @media (max-width: 399px) {
     .radar-weather-card {
       --radar-condition-width: 54px;
       --radar-icon-size: 32px;
@@ -1960,13 +1962,13 @@ input[type="range"]::-moz-range-thumb {
     }
   }
 
-  @media (min-width: 401px) {
+  @media (min-width: 400px) {
     .radar-weather-card {
-      --radar-condition-width: 64px;
-      --radar-icon-size: 36px;
+      --radar-condition-width: 70px;
+      --radar-icon-size: 40px;
 
       width: 360px;
-      padding: 8px 11px;
+      padding: 10px 12px;
     }
 
     .radar-weather-card .current {
@@ -1975,16 +1977,31 @@ input[type="range"]::-moz-range-thumb {
     }
 
     .radar-weather-card .rain-forecast-badge {
-      font-size: 0.9rem;
+      font-size: 0.96rem;
     }
 
     .radar-weather-card .rain-forecast-day {
+      font-size: 0.74rem;
+    }
+
+    .radar-weather-card .condition {
       font-size: 0.72rem;
+    }
+
+    .radar-weather-card .temp {
+      font-size: 2.08rem;
     }
 
     .radar-weather-card .current-wind,
     .radar-weather-card .current-rain {
       margin-left: 10px;
+    }
+
+    .radar-weather-card .current-wind .wind-value,
+    .radar-weather-card .temperature-range dd,
+    .radar-weather-card .metrics dd,
+    .radar-weather-card .temperature-range::before {
+      font-size: 1.02rem;
     }
   }
 
@@ -2106,6 +2123,18 @@ input[type="range"]::-moz-range-thumb {
 
 }
 
+@media (min-width: 376px) and (max-width: 430px) {
+  .hourly-grid {
+    --hourly-rain-inset: 0px;
+  }
+}
+
+@media (min-width: 431px) and (max-width: 899px) {
+  .hourly-grid {
+    --hourly-rain-inset: clamp(12px, 5vw, 22px);
+  }
+}
+
 @media (max-width: 375px) {
   .weather-app {
     padding: 8px 10px 6px;
@@ -2224,6 +2253,7 @@ input[type="range"]::-moz-range-thumb {
 
   .hourly-grid {
     --hourly-grid-columns: minmax(36px, 0.8fr) minmax(24px, 0.52fr) minmax(34px, 0.68fr) minmax(76px, 1.48fr) minmax(36px, 0.72fr);
+    --hourly-rain-inset: 0px;
   }
 
   .hourly-row {
@@ -2237,14 +2267,6 @@ input[type="range"]::-moz-range-thumb {
 
   .hourly-precipitation-intensity {
     font-size: 0.69em;
-  }
-
-  .hourly-precipitation-intensity.has-compact-label .hourly-precipitation-intensity-full {
-    display: none;
-  }
-
-  .hourly-precipitation-intensity.has-compact-label .hourly-precipitation-intensity-compact {
-    display: inline;
   }
 
   .hourly-head-row {
@@ -2377,6 +2399,10 @@ input[type="range"]::-moz-range-thumb {
     margin-right: 0;
     margin-left: 0;
     padding: 6px 7px 7px;
+  }
+
+  .hourly-grid {
+    --hourly-rain-inset: clamp(0px, calc((100vw - 900px) * 0.16), 16px);
   }
 
   .hourly-row {

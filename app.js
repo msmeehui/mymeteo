@@ -269,6 +269,7 @@ let locationSearchResults = [];
 let locationSearchTimer;
 let locationSearchAbortController;
 let sliderTimestampTimer;
+let hourlyForecastLayoutFrame;
 let buienradarPreloadTimer;
 let weatherData;
 let activeRadarDate;
@@ -370,6 +371,7 @@ function bindEvents() {
   });
   window.addEventListener("resize", () => {
     scheduleSliderTimestampsUpdate();
+    scheduleHourlyForecastLayout();
     if (document.activeElement === elements.locationInput) {
       resizeLocationInput(elements.locationInput.value);
       renderStatusLine();
@@ -602,6 +604,10 @@ function syncForecastViewForViewport() {
 
   if (showRadar) {
     refreshMapSize();
+  }
+
+  if (showForecast) {
+    scheduleHourlyForecastLayout();
   }
 }
 
@@ -1294,6 +1300,7 @@ function renderFiveDayForecast(data) {
   });
 
   elements.forecastBody.replaceChildren(...rows);
+  scheduleHourlyForecastLayout();
 }
 
 function renderDailyPrecipitationHeader(days) {
@@ -1836,6 +1843,90 @@ function createHourlyForecastRow(day) {
   return row;
 }
 
+function scheduleHourlyForecastLayout() {
+  if (hourlyForecastLayoutFrame) {
+    window.cancelAnimationFrame(hourlyForecastLayoutFrame);
+  }
+
+  hourlyForecastLayoutFrame = window.requestAnimationFrame(() => {
+    hourlyForecastLayoutFrame = undefined;
+    updateHourlyForecastLayouts();
+  });
+}
+
+function updateHourlyForecastLayouts() {
+  document.querySelectorAll(".hourly-grid").forEach(updateHourlyForecastLayout);
+}
+
+function updateHourlyForecastLayout(grid) {
+  const rows = Array.from(grid.querySelectorAll(".hourly-row:not(.hourly-head-row)"));
+
+  if (!rows.length || grid.getBoundingClientRect().width <= 0) {
+    return;
+  }
+
+  const rainCells = rows
+    .map((row) => row.querySelector(".hourly-rain"))
+    .filter(Boolean);
+  const rainValues = rows
+    .map((row) => row.querySelector(".hourly-precipitation-value"))
+    .filter(Boolean);
+  const tempCells = rows
+    .map((row) => row.querySelector(".hourly-temp"))
+    .filter(Boolean);
+  const windCells = rows
+    .map((row) => row.querySelector(".hourly-wind"))
+    .filter(Boolean);
+
+  if (!rainCells.length || !rainValues.length || !tempCells.length || !windCells.length) {
+    return;
+  }
+
+  const gridWidth = grid.getBoundingClientRect().width;
+  const tempRight = Math.max(...tempCells.map((cell) => cell.getBoundingClientRect().right));
+  const rainLeft = Math.min(...rainCells.map((cell) => cell.getBoundingClientRect().left));
+  const windRects = windCells.map((cell) => cell.getBoundingClientRect());
+  const windLeft = Math.min(...windRects.map((rect) => rect.left));
+  const narrowestWindCell = Math.min(...windRects.map((rect) => rect.width));
+  const widestRainValue = Math.max(...rainValues.map((value) => value.getBoundingClientRect().width));
+  const widestWindValue = Math.max(...windCells.map(getElementTextWidth));
+  const preferredGap = clampNumber(gridWidth * 0.075, 24, 32);
+  const minimumGap = 14;
+  const windRightCushion = clampNumber(gridWidth * 0.015, 5, 8);
+  const availableRainSpace = windLeft - tempRight - widestRainValue;
+  const balancedRainGap = Math.max(minimumGap, availableRainSpace / 2);
+  const balancedRainInset = Math.max(0, balancedRainGap - (rainLeft - tempRight));
+  const maximumRainInset = Math.max(0, windLeft - rainLeft - widestRainValue - minimumGap);
+  const rainInset = Math.min(balancedRainInset, maximumRainInset);
+  const gapAfterRainInset = windLeft - rainLeft - rainInset - widestRainValue;
+  const maximumWindInset = Math.max(0, narrowestWindCell - widestWindValue - windRightCushion);
+  const windInset = gapAfterRainInset < preferredGap
+    ? Math.min(preferredGap - gapAfterRainInset, maximumWindInset)
+    : 0;
+
+  grid.style.setProperty("--hourly-rain-inset", `${Math.round(rainInset)}px`);
+  grid.style.setProperty("--hourly-wind-inset", `${Math.round(windInset)}px`);
+}
+
+function clampNumber(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function getElementTextWidth(element) {
+  const canvas = getElementTextWidth.canvas || document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  const style = window.getComputedStyle(element);
+
+  getElementTextWidth.canvas = canvas;
+
+  if (!context) {
+    return 0;
+  }
+
+  context.font = `${style.fontStyle} ${style.fontVariant} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+  return context.measureText(element.textContent.trim()).width;
+}
+
 function createHourlyHeaderRow(precipitationLabel) {
   const row = document.createElement("div");
   row.className = "hourly-row hourly-head-row";
@@ -1892,22 +1983,9 @@ function createHourlyPrecipitationCell(precipitation) {
 
   if (precipitation.intensity) {
     const intensity = document.createElement("span");
-    const fullIntensity = document.createElement("span");
-    const compactIntensity = getCompactPrecipitationIntensity(precipitation.intensity);
 
     intensity.className = "hourly-precipitation-intensity";
-    fullIntensity.className = "hourly-precipitation-intensity-full";
-    fullIntensity.textContent = precipitation.intensity;
-    intensity.appendChild(fullIntensity);
-
-    if (compactIntensity !== precipitation.intensity) {
-      const compact = document.createElement("span");
-      intensity.classList.add("has-compact-label");
-      compact.className = "hourly-precipitation-intensity-compact";
-      compact.textContent = compactIntensity;
-      intensity.appendChild(compact);
-    }
-
+    intensity.textContent = precipitation.intensity;
     value.appendChild(intensity);
   }
 
@@ -3170,10 +3248,6 @@ function getPrecipitationIntensity(type, amount, displayChance) {
   }
 
   return "light";
-}
-
-function getCompactPrecipitationIntensity(intensity) {
-  return intensity === "moderate" ? "mod." : intensity;
 }
 
 function getPrecipitationAmount({ type, rainAmount, showersAmount, snowfallAmount }) {
