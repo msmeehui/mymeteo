@@ -32,7 +32,7 @@
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin=""
     />
-    <link rel="stylesheet" href="styles.css?v=20260528-7" />
+    <link rel="stylesheet" href="styles.css?v=20260529-21" />
   </head>
   <body>
     <main class="weather-app" aria-live="polite">
@@ -129,74 +129,73 @@
         </button>
       </div>
 
-      <section class="now-panel" aria-label="Current weather">
-        <div class="current">
-          <div class="condition-cluster">
-            <div class="condition-mark" aria-hidden="true">
-              <img
-                class="weather-icon condition-icon"
-                id="conditionIcon"
-                src="assets/weather-icons-mymeteo/partly-cloudy-day.svg"
-                width="64"
-                height="64"
-                alt=""
-                aria-hidden="true"
-              />
-            </div>
-            <p class="condition" id="conditionLabel">Checking the sky</p>
-          </div>
-          <div class="temperature-cluster">
-            <span class="current-temp-label visually-hidden">Temp</span>
-            <p class="temp" id="currentTemp">--°</p>
-            <dl class="temperature-range" aria-label="Remaining temperature range">
-              <div>
-                <dt>Max</dt>
-                <dd class="temp-max" id="maxTemp">--°</dd>
-              </div>
-              <div>
-                <dt>Min</dt>
-                <dd class="temp-min" id="minTemp">--°</dd>
-              </div>
-            </dl>
-          </div>
-          <div class="supporting-readout">
-            <div class="current-wind" aria-label="Wind">
-              <span class="current-wind-label visually-hidden">Wind</span>
-              <span class="wind-value">
-                <span class="wind-arrow" id="windArrow" aria-hidden="true"></span>
-                <span id="windText">--</span>
-              </span>
-            </div>
-            <dl class="metrics current-rain" aria-label="Remaining rain chance">
-              <div>
-                <dt class="visually-hidden">Rain</dt>
-                <dd class="current-rain-value">
-                  <span class="current-precipitation-value">
-                    <svg
-                      class="current-precipitation-icon"
-                      viewBox="0 0 12 22"
-                      fill="#238fc7"
-                      aria-hidden="true"
-                    >
-                      <path d="M6 1.7C3.9 4.6 2.2 7.4 1.5 10.6c-.4 1.4-.5 3-.5 4.5 0 3.1 2.25 5.3 5 5.3s5-2.2 5-5.3c0-1.5-.1-3.1-.5-4.5C9.8 7.4 8.1 4.6 6 1.7Z"></path>
-                    </svg>
-                    <span id="rainTotal">--%</span>
-                  </span>
-                </dd>
-              </div>
-            </dl>
-          </div>
-        </div>
-      </section>
-
       <section class="radar-panel" id="radarPanel" aria-label="Rain" role="tabpanel" aria-labelledby="rainTab">
         <div class="radar-head">
-          <h2>Rain</h2>
+          <h2>Today</h2>
           <time id="radarTime" hidden>Loading...</time>
         </div>
         <div class="radar-map-wrap">
           <div class="radar-map" id="radarMap"></div>
-          <div class="rain-forecast-badge" id="rainForecastBadge">Loading rain forecast...</div>
+          <section class="now-panel radar-weather-card" aria-label="Selected time weather">
+            <div class="current">
+              <time class="rain-forecast-badge is-message" id="rainForecastBadge">Loading rain forecast...</time>
+              <div class="condition-cluster">
+                <div class="condition-mark" aria-hidden="true">
+                  <img
+                    class="weather-icon condition-icon"
+                    id="conditionIcon"
+                    src="assets/weather-icons-mymeteo/partly-cloudy-day.svg"
+                    width="64"
+                    height="64"
+                    alt=""
+                    aria-hidden="true"
+                  />
+                </div>
+                <p class="condition" id="conditionLabel">Checking the sky</p>
+              </div>
+              <div class="temperature-cluster">
+                <span class="current-temp-label visually-hidden">Temp</span>
+                <p class="temp" id="currentTemp">--°</p>
+                <dl class="temperature-range" aria-label="Rest of day temperature range">
+                  <div>
+                    <dt>Max</dt>
+                    <dd class="temp-max" id="maxTemp">--°</dd>
+                  </div>
+                  <div>
+                    <dt>Min</dt>
+                    <dd class="temp-min" id="minTemp">--°</dd>
+                  </div>
+                </dl>
+              </div>
+              <div class="supporting-readout">
+                <div class="current-wind" aria-label="Wind">
+                  <span class="current-wind-label visually-hidden">Wind</span>
+                  <span class="wind-value">
+                    <span class="wind-arrow" id="windArrow" aria-hidden="true"></span>
+                    <span id="windText">--</span>
+                  </span>
+                </div>
+                <dl class="metrics current-rain" aria-label="Rest of day rain chance">
+                  <div>
+                    <dt class="visually-hidden">Rain</dt>
+                    <dd class="current-rain-value">
+                      <span class="current-precipitation-value">
+                        <svg
+                          class="current-precipitation-icon"
+                          viewBox="0 0 12 22"
+                          fill="#238fc7"
+                          aria-hidden="true"
+                        >
+                          <path d="M6 1.7C3.9 4.6 2.2 7.4 1.5 10.6c-.4 1.4-.5 3-.5 4.5 0 3.1 2.25 5.3 5 5.3s5-2.2 5-5.3c0-1.5-.1-3.1-.5-4.5C9.8 7.4 8.1 4.6 6 1.7Z"></path>
+                        </svg>
+                        <span id="rainTotal">--%</span>
+                      </span>
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+            </div>
+          </section>
         </div>
         <label class="radar-slider">
           <span class="slider-label">Time</span>
@@ -360,6 +359,11 @@
               <span class="info-section-chevron" aria-hidden="true"></span>
             </summary>
             <div class="info-section-body changelog">
+              <h3>29 May 2026</h3>
+              <ul>
+                <li>Integrated today’s weather into the rain radar map, with the time slider updating the map, weather icon, temperature, remaining-day high/low, wind, and rain chance together.</li>
+              </ul>
+
               <h3>28 May 2026</h3>
               <ul>
                 <li>Improved the 5-day forecast summaries so today focuses on the remaining hours, icons reflect dominant conditions, rain uses maximum hourly risk, and wind shows a representative dominant direction and speed.</li>
@@ -419,6 +423,6 @@
       crossorigin=""
     ></script>
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-    <script src="app.js?v=20260528-8"></script>
+    <script src="app.js?v=20260529-21"></script>
   </body>
 </html>

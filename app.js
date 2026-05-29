@@ -15,6 +15,7 @@ const buienradarRadarCacheMaxAgeMs = 9 * 60 * 1000;
 const currentLocationSource = "current";
 const currentLocationRefreshCooldownMs = 60 * 1000;
 const compactLocationLabelMediaQuery = "(max-width: 480px)";
+const desktopLayoutMediaQuery = "(min-width: 900px)";
 const reverseGeocodingTimeoutMs = 5 * 1000;
 const analyticsMeasurementId = "G-WLC2VP6GKK";
 const analyticsHostnames = new Set(["mymeteo.nl", "www.mymeteo.nl"]);
@@ -270,6 +271,7 @@ let locationSearchAbortController;
 let sliderTimestampTimer;
 let buienradarPreloadTimer;
 let weatherData;
+let activeRadarDate;
 let activeMobileView = "rain";
 let expandedForecastDayKey;
 let selectedLocation = loadStoredLocation() || DEFAULT_LOCATION;
@@ -584,7 +586,7 @@ function setMobileView(view) {
 }
 
 function syncForecastViewForViewport() {
-  const isDesktop = window.matchMedia("(min-width: 760px)").matches;
+  const isDesktop = window.matchMedia(desktopLayoutMediaQuery).matches;
   const showForecast = isDesktop || activeMobileView === "forecast";
   const showRadar = isDesktop || activeMobileView === "rain";
   const showCurrentWeather = isDesktop || activeMobileView === "rain";
@@ -1132,17 +1134,12 @@ async function loadWeather() {
 function renderWeather(data) {
   weatherData = data;
   const current = data.current;
-  const todayPrecipitation = buildCurrentDayPrecipitation(data);
-  const todayTemperatureRange = buildCurrentDayTemperatureRange(data);
-
-  renderCurrentTemperatureRange(todayTemperatureRange);
-  renderCurrentPrecipitation(todayPrecipitation);
   setStatusMessage(`Checked ${formatClock(new Date())}`, {
     title: `Weather observation ${formatTime(current.time)}`,
   });
 
   renderFiveDayForecast(data);
-  renderCurrentWeather();
+  renderSelectedWeather();
 }
 
 function renderCurrentTemperatureRange(temperatureRange) {
@@ -1154,29 +1151,83 @@ function renderCurrentTemperatureRange(temperatureRange) {
 }
 
 function renderCurrentPrecipitation(precipitation) {
+  const scopeLabel = precipitation.scopeLabel || "Remaining today";
   elements.currentPrecipLabel.textContent = precipitation.label;
   elements.rainTotal.textContent = precipitation.value;
   elements.rainTotal.title = precipitation.ariaLabel;
-  elements.currentPrecipMetric.setAttribute("aria-label", `Remaining today ${precipitation.ariaLabel.toLowerCase()}`);
+  elements.currentPrecipMetric.setAttribute("aria-label", `${scopeLabel} ${precipitation.ariaLabel.toLowerCase()}`);
   renderCurrentPrecipitationIcon(precipitation);
 }
 
-function renderCurrentWeather() {
+function renderSelectedWeather(date = getSelectedWeatherDate()) {
   if (!weatherData) {
     return;
   }
 
   const current = weatherData.current;
-  const snapshot = {
+  const currentSnapshot = getCurrentWeatherSnapshot(current);
+  const currentDate = new Date(current.time * 1000);
+  const isCurrentTime = !date || Math.abs(date - currentDate) < 30 * 60 * 1000;
+  const snapshot = isCurrentTime ? currentSnapshot : getHourlyWeatherSnapshot(date, weatherData.hourly) || currentSnapshot;
+  const summaryDate = date || currentDate;
+
+  renderCurrentTemperatureRange(buildSelectedDayTemperatureRange(weatherData, summaryDate, snapshot));
+  renderCurrentPrecipitation(buildSelectedDayPrecipitation(weatherData, summaryDate, snapshot));
+
+  renderTimedCondition(snapshot.condition);
+  renderTemperatureAndWind(snapshot);
+}
+
+function getSelectedWeatherDate() {
+  return getActiveRadarDate() || (weatherData?.current?.time ? new Date(weatherData.current.time * 1000) : undefined);
+}
+
+function getCurrentWeatherSnapshot(current = {}) {
+  return {
     condition: getCondition(current.weather_code, current.is_day),
     temperature: current.temperature_2m,
     windDirection: current.wind_direction_10m,
     windSpeed: current.wind_speed_10m,
     time: current.time,
   };
+}
 
-  renderTimedCondition(snapshot.condition);
-  renderTemperatureAndWind(snapshot);
+function getHourlyWeatherSnapshot(date, hourly) {
+  if (!date || !hourly?.time?.length) {
+    return undefined;
+  }
+
+  const index = getClosestTimeIndex(hourly.time, date.getTime() / 1000);
+  if (index < 0) {
+    return undefined;
+  }
+
+  return {
+    condition: getCondition(hourly.weather_code?.[index], hourly.is_day?.[index] ?? isForecastHourDaytime(hourly.time[index])),
+    temperature: hourly.temperature_2m?.[index],
+    windDirection: hourly.wind_direction_10m?.[index],
+    windSpeed: hourly.wind_speed_10m?.[index],
+    time: hourly.time[index],
+  };
+}
+
+function getClosestTimeIndex(times, targetTime) {
+  if (!times?.length || !Number.isFinite(targetTime)) {
+    return -1;
+  }
+
+  let closestIndex = 0;
+  let closestDistance = Math.abs(times[0] - targetTime);
+
+  for (let index = 1; index < times.length; index += 1) {
+    const distance = Math.abs(times[index] - targetTime);
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestIndex = index;
+    }
+  }
+
+  return closestIndex;
 }
 
 function renderTimedCondition(condition) {
@@ -1186,7 +1237,7 @@ function renderTimedCondition(condition) {
 
 function renderTemperatureAndWind({ temperature, windDirection, windSpeed, time }) {
   elements.currentTemp.textContent = formatOptionalTemperature(temperature);
-  elements.currentTemp.title = time ? `Weather observation ${formatTime(time)}` : "";
+  elements.currentTemp.title = time ? `Forecast for ${formatTime(time)}` : "";
 
   if (!Number.isFinite(windDirection) || !Number.isFinite(windSpeed)) {
     elements.windText.textContent = "--";
@@ -1200,13 +1251,26 @@ function renderTemperatureAndWind({ temperature, windDirection, windSpeed, time 
   const roundedWindSpeed = Math.round(windSpeed);
   const beaufort = kmhToBeaufort(roundedWindSpeed);
   const downwindDirection = (windDirection + 180) % 360;
-  const timeLabel = time ? `, weather observation ${formatTime(time)}` : "";
+  const timeLabel = time ? `, forecast for ${formatTime(time)}` : "";
 
   elements.windText.textContent = `${degreesToCompass(windDirection)} ${beaufort}`;
   elements.currentWind.setAttribute("aria-label", `Wind ${degreesToCompass(windDirection)} ${beaufort}`);
   elements.windText.title = `${roundedWindSpeed} km/h, blowing toward ${degreesToCompass(downwindDirection)}${timeLabel}`;
   elements.windArrow.style.transform = `rotate(${downwindDirection}deg)`;
   elements.windArrow.title = `Blowing toward ${degreesToCompass(downwindDirection)}${timeLabel}`;
+}
+
+function setActiveRadarDate(date) {
+  activeRadarDate = date instanceof Date && !Number.isNaN(date.getTime()) ? date : undefined;
+  renderSelectedWeather(activeRadarDate);
+}
+
+function getActiveRadarDate() {
+  if (activeRadarDate) {
+    return activeRadarDate;
+  }
+
+  return getRadarDateForSlider(Number(elements.radarSlider.value) || 0);
 }
 
 function renderFiveDayForecast(data) {
@@ -1259,6 +1323,23 @@ function buildCurrentDayTemperatureRange(data) {
   return buildTemperatureRange(Math.max(...temperatures), Math.min(...temperatures), true);
 }
 
+function buildSelectedDayTemperatureRange(data, date, snapshot) {
+  const dailyIndex = getDailyForecastIndex(data?.daily, formatDateKey(date));
+  const temperatures = getRemainingForecastHourEntries(data?.hourly, date)
+    .map(({ index }) => data.hourly.temperature_2m?.[index])
+    .filter(Number.isFinite);
+
+  if (Number.isFinite(snapshot?.temperature)) {
+    temperatures.push(snapshot.temperature);
+  }
+
+  if (!temperatures.length) {
+    return buildDailyTemperatureRange(data?.daily, dailyIndex >= 0 ? dailyIndex : 0, "restOfDay");
+  }
+
+  return buildTemperatureRange(Math.max(...temperatures), Math.min(...temperatures), "restOfDay");
+}
+
 function buildDailyTemperatureRange(daily, index, isRemainingToday = false) {
   return buildTemperatureRange(daily?.temperature_2m_max?.[index], daily?.temperature_2m_min?.[index], isRemainingToday);
 }
@@ -1266,7 +1347,11 @@ function buildDailyTemperatureRange(daily, index, isRemainingToday = false) {
 function buildTemperatureRange(maxTemperature, minTemperature, isRemainingToday = false) {
   const max = formatOptionalTemperature(maxTemperature);
   const min = formatOptionalTemperature(minTemperature);
-  const prefix = isRemainingToday ? "Remaining today" : "Daily";
+  const prefix = isRemainingToday === "restOfDay"
+    ? "Rest of day"
+    : isRemainingToday
+      ? "Remaining today"
+      : "Daily";
 
   return {
     max,
@@ -1292,6 +1377,28 @@ function buildCurrentDayPrecipitation(data) {
   );
 }
 
+function buildSelectedDayPrecipitation(data, date, snapshot) {
+  const dailyIndex = getDailyForecastIndex(data?.daily, formatDateKey(date));
+  const fallbackPrecipitation = buildDailyPrecipitation(
+    data?.daily,
+    dailyIndex >= 0 ? dailyIndex : 0,
+    snapshot?.temperature,
+  );
+  const hours = buildHourlyForecastEntries(data?.hourly, getRemainingForecastHourEntries(data?.hourly, date));
+  const hourlyPrecipitations = hours.map((hour) => hour.precipitation);
+  const typedPrecipitation = withPrecipitationType(
+    fallbackPrecipitation,
+    getDominantPrecipitationType(hourlyPrecipitations, {
+      fallbackType: fallbackPrecipitation.type,
+    }),
+  );
+
+  return {
+    ...withHourlyPrecipitationChance(typedPrecipitation, hourlyPrecipitations),
+    scopeLabel: "Rest of day",
+  };
+}
+
 function buildDailyPrecipitation(daily, index, temperature) {
   return buildPrecipitationChance({
     chance: daily?.precipitation_probability_max?.[index],
@@ -1301,6 +1408,14 @@ function buildDailyPrecipitation(daily, index, temperature) {
     snowfallAmount: daily?.snowfall_sum?.[index],
     temperature,
   });
+}
+
+function getDailyForecastIndex(daily, dayKey) {
+  if (!daily?.time?.length || !dayKey) {
+    return -1;
+  }
+
+  return daily.time.findIndex((time) => formatDateKey(time) === dayKey);
 }
 
 function getForecastTiming(data) {
@@ -1823,33 +1938,39 @@ function buildHourlyForecastForDay(hourly, dayKey, { currentHour, isToday } = {}
     return [];
   }
 
-  return getForecastHourEntries(hourly, dayKey, { currentHour, isToday })
-    .slice(0, 24)
-    .map(({ time, index }) => {
-      const isDay = hourly.is_day?.[index] ?? isForecastHourDaytime(time);
-      const weatherCode = hourly.weather_code?.[index];
-      const windDirection = hourly.wind_direction_10m?.[index];
-      const windSpeed = hourly.wind_speed_10m?.[index];
-      return {
-        time: formatTime(time),
+  return buildHourlyForecastEntries(hourly, getForecastHourEntries(hourly, dayKey, { currentHour, isToday }).slice(0, 24));
+}
+
+function buildHourlyForecastEntries(hourly, entries) {
+  if (!hourly?.time?.length || !Array.isArray(entries)) {
+    return [];
+  }
+
+  return entries.map(({ time, index }) => {
+    const isDay = hourly.is_day?.[index] ?? isForecastHourDaytime(time);
+    const weatherCode = hourly.weather_code?.[index];
+    const windDirection = hourly.wind_direction_10m?.[index];
+    const windSpeed = hourly.wind_speed_10m?.[index];
+    return {
+      time: formatTime(time),
+      weatherCode,
+      isDaytime: isDay !== 0 && isDay !== false,
+      condition: getCondition(weatherCode, isDay),
+      temperature: formatOptionalTemperature(hourly.temperature_2m?.[index]),
+      precipitation: buildPrecipitationChance({
+        chance: hourly.precipitation_probability?.[index],
         weatherCode,
-        isDaytime: isDay !== 0 && isDay !== false,
-        condition: getCondition(weatherCode, isDay),
-        temperature: formatOptionalTemperature(hourly.temperature_2m?.[index]),
-        precipitation: buildPrecipitationChance({
-          chance: hourly.precipitation_probability?.[index],
-          weatherCode,
-          rainAmount: hourly.rain?.[index],
-          showersAmount: hourly.showers?.[index],
-          snowfallAmount: hourly.snowfall?.[index],
-          temperature: hourly.temperature_2m?.[index],
-          includeIntensity: true,
-        }),
-        windDirection,
-        windSpeed,
-        wind: formatOptionalWind(windDirection, windSpeed),
-      };
-    });
+        rainAmount: hourly.rain?.[index],
+        showersAmount: hourly.showers?.[index],
+        snowfallAmount: hourly.snowfall?.[index],
+        temperature: hourly.temperature_2m?.[index],
+        includeIntensity: true,
+      }),
+      windDirection,
+      windSpeed,
+      wind: formatOptionalWind(windDirection, windSpeed),
+    };
+  });
 }
 
 function getForecastHourEntries(hourly, dayKey, { currentHour, isToday } = {}) {
@@ -1861,6 +1982,21 @@ function getForecastHourEntries(hourly, dayKey, { currentHour, isToday } = {}) {
     .map((time, index) => ({ time, index }))
     .filter(({ time }) => formatDateKey(time) === dayKey)
     .filter(({ time }) => !isToday || getDatePart(toForecastDate(time), "hour") >= currentHour);
+}
+
+function getRemainingForecastHourEntries(hourly, date) {
+  if (!hourly?.time?.length || !date) {
+    return [];
+  }
+
+  const dayKey = formatDateKey(date);
+  const startTime = date.getTime() / 1000;
+  const hourLookbackSeconds = 60 * 60;
+
+  return hourly.time
+    .map((time, index) => ({ time, index }))
+    .filter(({ time }) => formatDateKey(time) === dayKey)
+    .filter(({ time }) => time >= startTime - hourLookbackSeconds);
 }
 
 function isForecastHourDaytime(time) {
@@ -1929,6 +2065,7 @@ function initMap() {
     scrollWheelZoom: true,
     tap: true,
   });
+  map.attributionControl.setPrefix(false);
 
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 18,
@@ -1946,14 +2083,14 @@ function initMap() {
     fillOpacity: 1,
   }).addTo(map);
 
-  L.control.zoom({ position: "topright" }).addTo(map);
+  L.control.zoom({ position: "bottomright" }).addTo(map);
   createBuienradarModeControl().addTo(map);
   updateBuienradarModeControl();
   refreshMapSize();
 }
 
 function createBuienradarModeControl() {
-  const control = L.control({ position: "topright" });
+  const control = L.control({ position: "bottomright" });
 
   control.onAdd = () => {
     buienradarModeControlContainer = L.DomUtil.create("div", "leaflet-control buienradar-mode-control");
@@ -2228,11 +2365,12 @@ function disableRadar(message) {
   clearLibreWxrRadar();
   clearBuienradarRadar();
   radarFrames = [];
+  setActiveRadarDate(undefined);
   elements.radarSlider.disabled = true;
   elements.radarSlider.max = "0";
   elements.radarSlider.value = "0";
   elements.radarTime.textContent = message;
-  elements.rainForecastBadge.textContent = message;
+  setRainForecastBadgeText(message);
   elements.radarSlider.removeAttribute("aria-valuetext");
   updateSliderTimestamps();
   elements.radarTime.classList.add("error");
@@ -2272,9 +2410,10 @@ function setLibreWxrRadarPosition(value) {
   const displayDate = new Date(displayTime * 1000);
   const label = formatClock(displayDate);
   elements.radarTime.textContent = label;
-  elements.rainForecastBadge.textContent = label;
+  setRainForecastBadgeText(label, displayDate);
   elements.radarSlider.setAttribute("aria-valuetext", label);
   elements.radarTime.classList.remove("error");
+  setActiveRadarDate(displayDate);
 }
 
 function handleRadarSliderInput(value) {
@@ -2320,10 +2459,55 @@ function setBuienradarFramePosition(value) {
   const frameDate = new Date(buienradarStartDate.getTime() + displayIndex * radarMode.frameMinutes * 60 * 1000);
   const label = formatClock(frameDate, DEFAULT_LOCATION.timezone);
   elements.radarTime.textContent = label;
-  elements.rainForecastBadge.textContent = label;
+  setRainForecastBadgeText(label, frameDate, DEFAULT_LOCATION.timezone);
   elements.radarSlider.value = String(Math.round(framePosition * 100));
   elements.radarSlider.setAttribute("aria-valuetext", label);
   elements.radarTime.classList.remove("error");
+  setActiveRadarDate(frameDate);
+}
+
+function setRainForecastBadgeText(text, date, timezone = selectedLocation.timezone) {
+  const isClockLabel = /^\d{1,2}:\d{2}$/.test(text);
+  elements.rainForecastBadge.classList.toggle("is-message", !isClockLabel);
+
+  if (!isClockLabel) {
+    elements.rainForecastBadge.textContent = text;
+    elements.rainForecastBadge.removeAttribute("datetime");
+    return;
+  }
+
+  const timeLabel = document.createElement("span");
+  timeLabel.className = "rain-forecast-time";
+  timeLabel.textContent = `At ${text}`;
+  elements.rainForecastBadge.replaceChildren(timeLabel);
+
+  if (date instanceof Date && !Number.isNaN(date.getTime())) {
+    elements.rainForecastBadge.dateTime = date.toISOString();
+  } else {
+    elements.rainForecastBadge.removeAttribute("datetime");
+  }
+
+  const dayContext = getRainForecastDayContext(date, timezone);
+  if (dayContext) {
+    const dayLabel = document.createElement("span");
+    dayLabel.className = "rain-forecast-day";
+    dayLabel.textContent = dayContext;
+    elements.rainForecastBadge.append(dayLabel);
+  }
+}
+
+function getRainForecastDayContext(date, timezone = selectedLocation.timezone) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const selectedDateKey = formatDateKey(date, timezone);
+  const todayDateKey = formatDateKey(new Date(), timezone);
+  return selectedDateKey > todayDateKey ? "Tomorrow" : "";
+}
+
+function getRadarDateForSlider(value) {
+  return getBuienradarDateForSlider(value) || getLibreWxrDateForSlider(value);
 }
 
 function getRadarTimeRange() {
