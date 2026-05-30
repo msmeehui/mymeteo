@@ -2694,8 +2694,9 @@ function setLibreWxrRadarPosition(value) {
   const displayTime = interpolateUnixTime(lowerFrame.time, upperFrame.time, progress);
   const displayDate = new Date(displayTime * 1000);
   const label = formatClock(displayDate);
+  const isCurrentPosition = isRadarSliderAtStart(value);
   elements.radarTime.textContent = label;
-  setRainForecastBadgeText(label, displayDate);
+  setRainForecastBadgeText(label, displayDate, selectedLocation.timezone, { isCurrentPosition });
   elements.radarSlider.setAttribute("aria-valuetext", label);
   elements.radarTime.classList.remove("error");
   setActiveRadarDate(displayDate);
@@ -2743,27 +2744,34 @@ function setBuienradarFramePosition(value) {
   const radarMode = getBuienradarRadarMode(loadedBuienradarRadarModeId);
   const frameDate = new Date(buienradarStartDate.getTime() + displayIndex * radarMode.frameMinutes * 60 * 1000);
   const label = formatClock(frameDate, DEFAULT_LOCATION.timezone);
+  const isCurrentPosition = isRadarSliderAtStart(value);
   elements.radarTime.textContent = label;
-  setRainForecastBadgeText(label, frameDate, DEFAULT_LOCATION.timezone);
+  setRainForecastBadgeText(label, frameDate, DEFAULT_LOCATION.timezone, { isCurrentPosition });
   elements.radarSlider.value = String(Math.round(framePosition * 100));
   elements.radarSlider.setAttribute("aria-valuetext", label);
   elements.radarTime.classList.remove("error");
   setActiveRadarDate(frameDate);
 }
 
-function setRainForecastBadgeText(text, date, timezone = selectedLocation.timezone) {
+function isRadarSliderAtStart(value) {
+  return Math.abs(Number(value) || 0) < 0.5;
+}
+
+function setRainForecastBadgeText(text, date, timezone = selectedLocation.timezone, { isCurrentPosition = false } = {}) {
   const isClockLabel = /^\d{1,2}:\d{2}$/.test(text);
   elements.rainForecastBadge.classList.toggle("is-message", !isClockLabel);
 
   if (!isClockLabel) {
     elements.rainForecastBadge.textContent = text;
     elements.rainForecastBadge.removeAttribute("datetime");
+    elements.rainForecastBadge.title = "";
+    elements.rainForecastBadge.removeAttribute("aria-label");
     return;
   }
 
   const timeLabel = document.createElement("span");
   timeLabel.className = "rain-forecast-time";
-  timeLabel.textContent = `At ${text}`;
+  timeLabel.textContent = isCurrentPosition ? "Now" : `At ${text}`;
   elements.rainForecastBadge.replaceChildren(timeLabel);
 
   if (date instanceof Date && !Number.isNaN(date.getTime())) {
@@ -2772,13 +2780,16 @@ function setRainForecastBadgeText(text, date, timezone = selectedLocation.timezo
     elements.rainForecastBadge.removeAttribute("datetime");
   }
 
-  const dayContext = getRainForecastDayContext(date, timezone);
+  const dayContext = isCurrentPosition ? "" : getRainForecastDayContext(date, timezone);
   if (dayContext) {
     const dayLabel = document.createElement("span");
     dayLabel.className = "rain-forecast-day";
     dayLabel.textContent = dayContext;
     elements.rainForecastBadge.append(dayLabel);
   }
+
+  elements.rainForecastBadge.title = isCurrentPosition ? `Radar time ${text}` : "";
+  elements.rainForecastBadge.setAttribute("aria-label", [isCurrentPosition ? `Now, radar time ${text}` : `At ${text}`, dayContext].filter(Boolean).join(", "));
 }
 
 function setRainForecastBadgeCurrent(date) {
@@ -2787,6 +2798,8 @@ function setRainForecastBadgeCurrent(date) {
 
   elements.rainForecastBadge.classList.remove("is-message");
   elements.rainForecastBadge.textContent = "Now";
+  elements.rainForecastBadge.title = "";
+  elements.rainForecastBadge.setAttribute("aria-label", "Now");
 
   if (displayDate instanceof Date && !Number.isNaN(displayDate.getTime())) {
     elements.rainForecastBadge.dateTime = displayDate.toISOString();
