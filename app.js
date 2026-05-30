@@ -274,6 +274,7 @@ let buienradarPreloadTimer;
 let weatherData;
 let activeRadarDate;
 let activeMobileView = "rain";
+let shouldCenterMapWhenShown = false;
 let expandedForecastDayKey;
 let selectedLocation = loadStoredLocation() || DEFAULT_LOCATION;
 let currentLocationRefreshState = isCurrentLocation(selectedLocation) ? "stale" : "idle";
@@ -603,7 +604,12 @@ function syncForecastViewForViewport() {
   }
 
   if (showRadar) {
-    refreshMapSize();
+    if (shouldCenterMapWhenShown) {
+      shouldCenterMapWhenShown = false;
+      centerMapOnSelectedLocation();
+    } else {
+      refreshMapSize();
+    }
   }
 
   if (showForecast) {
@@ -1070,8 +1076,31 @@ function updateMapLocation() {
 
   const latLng = [selectedLocation.lat, selectedLocation.lon];
   locationMarker.setLatLng(latLng);
-  map.setView(latLng, 7, { animate: false });
-  refreshMapSize();
+  if (elements.radarPanel.hidden) {
+    shouldCenterMapWhenShown = true;
+    return;
+  }
+
+  centerMapOnSelectedLocation();
+}
+
+function centerMapOnSelectedLocation() {
+  const center = () => {
+    if (!map) {
+      return;
+    }
+
+    map.invalidateSize({ animate: false });
+    map.setView([selectedLocation.lat, selectedLocation.lon], 7, { animate: false });
+  };
+
+  center();
+  window.requestAnimationFrame(() => {
+    center();
+    [80, 220, 600].forEach((delay) => {
+      window.setTimeout(center, delay);
+    });
+  });
 }
 
 async function loadAll() {
@@ -2429,7 +2458,7 @@ function refreshMapSize() {
         return;
       }
 
-      map.invalidateSize({ animate: false, pan: false });
+      map.invalidateSize({ animate: false });
     };
 
     invalidate();

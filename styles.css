@@ -530,7 +530,7 @@ h1 {
   border-radius: 0;
   background: transparent;
   color: var(--muted);
-  font-size: 0.86rem;
+  font-size: 1.08rem;
   font-weight: 800;
   cursor: pointer;
 }
@@ -862,7 +862,7 @@ h1 {
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr);
   gap: 9px;
-  min-height: 15px;
+  min-height: 17px;
   margin-top: -8px;
 }
 
@@ -873,14 +873,14 @@ h1 {
 .slider-timestamps-track {
   position: relative;
   grid-column: 2;
-  height: 15px;
+  height: 17px;
 }
 
 .slider-timestamp {
   position: absolute;
   top: 0;
   color: rgb(104 113 108 / 0.78);
-  font-size: 0.84rem;
+  font-size: 0.97rem;
   font-weight: 700;
   line-height: 1;
   white-space: nowrap;
@@ -896,7 +896,7 @@ h1 {
 }
 
 .slider-label {
-  font-size: 0.72rem;
+  font-size: 0.83rem;
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1705,7 +1705,8 @@ input[type="range"]::-moz-range-thumb {
 
   .weather-tab {
     min-height: 31px;
-    font-size: 0.82rem;
+    font-size: 1.03rem;
+    font-weight: 800;
   }
 
   .now-panel {
@@ -1962,46 +1963,119 @@ input[type="range"]::-moz-range-thumb {
     }
   }
 
-  @media (min-width: 400px) {
-    .radar-weather-card {
-      --radar-condition-width: 70px;
-      --radar-icon-size: 40px;
+  @media (max-width: 375px) {
+    .radar-weather-card .rain-forecast-time {
+      font-size: 1.15em;
+    }
+  }
 
-      width: 360px;
-      padding: 10px 12px;
+  @media (min-width: 376px) and (max-width: 399px) {
+    .radar-weather-card {
+      --radar-condition-width: 62px;
+      --radar-icon-size: 37px;
+
+      padding: 8px 9px;
     }
 
     .radar-weather-card .current {
-      justify-content: space-between;
-      column-gap: 7px;
+      column-gap: 8px;
     }
 
     .radar-weather-card .rain-forecast-badge {
-      font-size: 0.96rem;
+      font-size: 0.9rem;
     }
 
     .radar-weather-card .rain-forecast-day {
-      font-size: 0.74rem;
+      font-size: 0.78rem;
     }
 
     .radar-weather-card .condition {
-      font-size: 0.72rem;
+      font-size: 0.75rem;
     }
 
     .radar-weather-card .temp {
-      font-size: 2.08rem;
+      font-size: 2.14rem;
     }
 
     .radar-weather-card .current-wind,
     .radar-weather-card .current-rain {
-      margin-left: 10px;
+      margin-left: 5px;
     }
 
     .radar-weather-card .current-wind .wind-value,
     .radar-weather-card .temperature-range dd,
     .radar-weather-card .metrics dd,
     .radar-weather-card .temperature-range::before {
-      font-size: 1.02rem;
+      font-size: 1.04rem;
+    }
+
+    .radar-weather-card .wind-arrow {
+      border-left-width: 5px;
+      border-right-width: 5px;
+      border-bottom-width: 15px;
+    }
+  }
+
+  @media (min-width: 400px) {
+    .radar-weather-card {
+      --radar-condition-width: 81px;
+      --radar-icon-size: 46px;
+
+      width: 360px;
+      padding: 12px 14px;
+    }
+
+    .radar-weather-card .current {
+      justify-content: space-between;
+      column-gap: 8px;
+    }
+
+    .radar-weather-card .rain-forecast-badge {
+      font-size: 1.1rem;
+    }
+
+    .radar-weather-card .rain-forecast-day {
+      font-size: 0.85rem;
+    }
+
+    .radar-weather-card .condition {
+      font-size: 0.83rem;
+    }
+
+    .radar-weather-card .temp {
+      font-size: 2.39rem;
+    }
+
+    .radar-weather-card .current-wind,
+    .radar-weather-card .current-rain {
+      margin-left: 12px;
+    }
+
+    .radar-weather-card .current-wind .wind-value,
+    .radar-weather-card .temperature-range dd,
+    .radar-weather-card .metrics dd,
+    .radar-weather-card .temperature-range::before {
+      font-size: 1.17rem;
+    }
+
+    .radar-weather-card .wind-arrow {
+      border-left-width: 5px;
+      border-right-width: 5px;
+      border-bottom-width: 15px;
+    }
+  }
+
+  @media (min-width: 400px) and (max-width: 440px) {
+    .radar-weather-card {
+      right: 8px;
+      width: auto;
+      max-width: none;
+    }
+  }
+
+  @media (min-width: 441px) {
+    .radar-weather-card {
+      width: 400px;
     }
   }
 
@@ -2014,20 +2088,20 @@ input[type="range"]::-moz-range-thumb {
   .slider-timestamps {
     grid-template-columns: 38px minmax(0, 1fr);
     gap: 7px;
-    min-height: 13px;
-    margin-top: -9px;
+    min-height: 15px;
+    margin-top: -4px;
   }
 
   .slider-timestamps-track {
-    height: 13px;
+    height: 15px;
   }
 
   .slider-timestamp {
-    font-size: 0.74rem;
+    font-size: 0.85rem;
   }
 
   .slider-label {
-    font-size: 0.66rem;
+    font-size: 0.76rem;
   }
 
   .info-dialog {
@@ -2330,6 +2404,12 @@ input[type="range"]::-moz-range-thumb {
     display: flex;
   }
 
+  .radar-head h2,
+  .forecast-head h2 {
+    font-size: 1.25rem;
+    font-weight: 800;
+  }
+
   .weather-tabs {
     display: none;
   }
@@ -2354,10 +2434,6 @@ input[type="range"]::-moz-range-thumb {
 
   .forecast-head {
     min-height: 28px;
-  }
-
-  .forecast-head h2 {
-    font-size: 1rem;
   }
 
   .forecast-table th {
