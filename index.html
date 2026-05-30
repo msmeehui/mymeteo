@@ -32,7 +32,7 @@
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin=""
     />
-    <link rel="stylesheet" href="styles.css?v=20260530-11" />
+    <link rel="stylesheet" href="styles.css?v=20260530-13" />
   </head>
   <body>
     <main class="weather-app" aria-live="polite">
@@ -272,6 +272,16 @@
 
           <details class="info-section">
             <summary>
+              <span>Icon Legend</span>
+              <span class="info-section-chevron" aria-hidden="true"></span>
+            </summary>
+            <div class="info-section-body icon-legend" id="iconLegend">
+              <p>Weather icons used in MyMeteo.</p>
+            </div>
+          </details>
+
+          <details class="info-section">
+            <summary>
               <span>Data Sources</span>
               <span class="info-section-chevron" aria-hidden="true"></span>
             </summary>
@@ -361,7 +371,7 @@
             <div class="info-section-body changelog">
               <h3>30 May 2026</h3>
               <ul>
-                <li>Centered the Today map on the selected location after choosing a new place from the 5-day view.</li>
+                <li>Added an icon legend in the About modal for the weather icons.</li>
               </ul>
 
               <h3>29 May 2026</h3>
@@ -428,6 +438,6 @@
       crossorigin=""
     ></script>
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-    <script src="app.js?v=20260530-01"></script>
+    <script src="app.js?v=20260530-03"></script>
   </body>
 </html>

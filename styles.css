@@ -1106,6 +1106,81 @@ input[type="range"]::-moz-range-thumb {
   margin: 0;
 }
 
+.icon-legend {
+  gap: 14px;
+}
+
+.icon-legend-intro {
+  margin: 0;
+}
+
+.icon-legend-group {
+  display: grid;
+  gap: 7px;
+}
+
+.info-section-body .icon-legend-group h3 {
+  margin: 0;
+}
+
+.icon-legend-list {
+  display: grid;
+  gap: 0;
+}
+
+.icon-legend-item {
+  min-width: 0;
+  min-height: 40px;
+  padding: 7px 0;
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.icon-legend-item + .icon-legend-item {
+  border-top: 1px solid rgb(47 127 159 / 0.14);
+}
+
+.icon-legend-icons {
+  width: 58px;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.icon-legend-icon {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+}
+
+.icon-legend-icon:only-child {
+  width: 30px;
+  height: 30px;
+  flex-basis: 30px;
+}
+
+.icon-legend-text {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.icon-legend-label {
+  color: var(--ink);
+  font-weight: 820;
+  line-height: 1.2;
+}
+
+.icon-legend-description {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.3;
+}
+
 .changelog {
   gap: 9px;
 }

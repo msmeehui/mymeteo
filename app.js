@@ -72,6 +72,7 @@ const elements = {
   forecastPrecipHeader: document.querySelector(".forecast-table th:nth-child(4)"),
   infoButton: document.querySelector("#infoButton"),
   infoDialog: document.querySelector("#infoDialog"),
+  iconLegend: document.querySelector("#iconLegend"),
   radarPanel: document.querySelector(".radar-panel"),
   radarMap: document.querySelector("#radarMap"),
   radarTime: document.querySelector("#radarTime"),
@@ -232,6 +233,109 @@ const weatherCodes = {
   },
 };
 
+const weatherIconLegendGroups = [
+  {
+    title: "Clear and Cloudy",
+    items: [
+      {
+        label: "Clear sky",
+        icons: ["clear-day", "clear-night"],
+        description: "Sunny by day or clear overnight with little to no cloud cover.",
+      },
+      {
+        label: "Mostly clear",
+        icons: ["mostly-clear-day", "mostly-clear-night"],
+        description: "Mostly bright or clear, with only a few clouds around.",
+      },
+      {
+        label: "Partly cloudy",
+        icons: ["partly-cloudy-day", "partly-cloudy-night"],
+        description: "A mix of cloud and open sky.",
+      },
+      {
+        label: "Overcast",
+        icons: ["overcast-day", "overcast-night"],
+        description: "Cloud cover dominates the sky.",
+      },
+    ],
+  },
+  {
+    title: "Fog",
+    items: [
+      {
+        label: "Fog",
+        icons: ["fog-day", "fog-night"],
+        description: "Fog, mist, or icy rime fog reducing visibility.",
+      },
+    ],
+  },
+  {
+    title: "Rain",
+    items: [
+      {
+        label: "Drizzle",
+        icons: ["drizzle"],
+        description: "Light, fine rain.",
+      },
+      {
+        label: "Rain",
+        icons: ["rain"],
+        description: "Steady light or moderate rain.",
+      },
+      {
+        label: "Heavy rain",
+        icons: ["overcast-rain"],
+        description: "Heavier rain from a cloudy sky.",
+      },
+      {
+        label: "Freezing rain or sleet",
+        icons: ["overcast-sleet"],
+        description: "Cold precipitation that may freeze or fall mixed with ice.",
+      },
+      {
+        label: "Showers",
+        icons: ["partly-cloudy-day-rain", "partly-cloudy-night-rain"],
+        description: "Intermittent rain showers.",
+      },
+    ],
+  },
+  {
+    title: "Winter",
+    items: [
+      {
+        label: "Snow",
+        icons: ["snow"],
+        description: "Light, moderate, or heavy snowfall.",
+      },
+      {
+        label: "Snow grains",
+        icons: ["snowflake"],
+        description: "Very small snow or ice grains.",
+      },
+      {
+        label: "Snow showers",
+        icons: ["partly-cloudy-day-snow", "partly-cloudy-night-snow"],
+        description: "Intermittent snow showers.",
+      },
+    ],
+  },
+  {
+    title: "Storms",
+    items: [
+      {
+        label: "Thunderstorm",
+        icons: ["thunderstorms-day-rain", "thunderstorms-night-rain"],
+        description: "Thunderstorms with rain.",
+      },
+      {
+        label: "Storm with hail",
+        icons: ["thunderstorms-day-hail", "thunderstorms-night-hail"],
+        description: "Thunderstorms that may include hail.",
+      },
+    ],
+  },
+];
+
 const snowWeatherCodes = new Set([71, 73, 75, 77, 85, 86]);
 // Near-even rain/snow totals should read as snow in the compact label.
 const snowCloseSplitRatio = 0.85;
@@ -291,6 +395,7 @@ function init() {
   }
 
   initAnalytics();
+  renderWeatherIconLegend();
   renderLocation();
   initMap();
   bindEvents();
@@ -581,6 +686,59 @@ function bindInfoAccordion() {
       });
     });
   });
+}
+
+function renderWeatherIconLegend() {
+  if (!elements.iconLegend) {
+    return;
+  }
+
+  const intro = document.createElement("p");
+  intro.className = "icon-legend-intro";
+  intro.textContent = "Weather icons used in MyMeteo.";
+
+  elements.iconLegend.replaceChildren(intro, ...weatherIconLegendGroups.map(createWeatherIconLegendGroup));
+}
+
+function createWeatherIconLegendGroup(group) {
+  const section = document.createElement("section");
+  const heading = document.createElement("h3");
+  const list = document.createElement("div");
+
+  section.className = "icon-legend-group";
+  heading.textContent = group.title;
+  list.className = "icon-legend-list";
+  list.setAttribute("role", "list");
+  group.items.forEach((item) => list.appendChild(createWeatherIconLegendItem(item)));
+  section.append(heading, list);
+
+  return section;
+}
+
+function createWeatherIconLegendItem(item) {
+  const row = document.createElement("div");
+  const icons = document.createElement("span");
+  const text = document.createElement("span");
+  const label = document.createElement("span");
+  const description = document.createElement("span");
+
+  row.className = "icon-legend-item";
+  row.setAttribute("role", "listitem");
+  icons.className = "icon-legend-icons";
+  icons.setAttribute("aria-hidden", "true");
+  item.icons.forEach((iconName) => {
+    icons.appendChild(createWeatherIcon({ icon: iconName }, "icon-legend-icon"));
+  });
+
+  text.className = "icon-legend-text";
+  label.className = "icon-legend-label";
+  label.textContent = item.label;
+  description.className = "icon-legend-description";
+  description.textContent = item.description;
+  text.append(label, description);
+  row.append(icons, text);
+
+  return row;
 }
 
 function setMobileView(view) {
