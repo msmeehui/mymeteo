@@ -606,6 +606,51 @@ h1 {
   background: #dde4df;
 }
 
+.radar-map-status {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  z-index: 870;
+  max-width: calc(100% - 20px);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 7px 10px;
+  border: 1px solid rgb(255 255 255 / 0.74);
+  border-radius: 6px;
+  background: rgb(255 250 240 / 0.92);
+  box-shadow: 0 6px 18px rgb(23 32 27 / 0.14);
+  color: var(--ink);
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1.1;
+  pointer-events: none;
+}
+
+.radar-map-status[hidden] {
+  display: none;
+}
+
+.radar-map-status::before {
+  width: 12px;
+  height: 12px;
+  content: "";
+  flex: 0 0 auto;
+  border: 2px solid rgb(47 127 159 / 0.22);
+  border-top-color: var(--rain);
+  border-radius: 50%;
+  animation: spin 800ms linear infinite;
+}
+
+.radar-map-status.is-error {
+  color: #8a3636;
+}
+
+.radar-map-status.is-error::before {
+  display: none;
+}
+
 .radar-weather-card {
   --radar-condition-width: 96px;
   --radar-icon-size: 40px;
@@ -760,12 +805,6 @@ h1 {
 .radar-weather-card .rain-forecast-badge.is-message {
   grid-column: 1 / -1;
   justify-self: start;
-}
-
-.radar-weather-card .rain-forecast-badge.is-message ~ .condition-cluster,
-.radar-weather-card .rain-forecast-badge.is-message ~ .temperature-cluster,
-.radar-weather-card .rain-forecast-badge.is-message ~ .supporting-readout {
-  display: none;
 }
 
 .leaflet-container {
@@ -1907,6 +1946,14 @@ input[type="range"]::-moz-range-thumb {
 
   .radar-map {
     border-color: rgb(23 32 27 / 0.18);
+  }
+
+  .radar-map-status {
+    bottom: 8px;
+    left: 8px;
+    max-width: calc(100% - 16px);
+    padding: 6px 8px;
+    font-size: 0.68rem;
   }
 
   .radar-weather-card {

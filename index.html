@@ -136,9 +136,12 @@
         </div>
         <div class="radar-map-wrap">
           <div class="radar-map" id="radarMap"></div>
+          <p class="radar-map-status" id="radarMapStatus" role="status" aria-live="polite">
+            Loading rain forecast...
+          </p>
           <section class="now-panel radar-weather-card" aria-label="Selected time weather">
             <div class="current">
-              <time class="rain-forecast-badge is-message" id="rainForecastBadge">Loading rain forecast...</time>
+              <time class="rain-forecast-badge" id="rainForecastBadge">Now</time>
               <div class="condition-cluster">
                 <div class="condition-mark" aria-hidden="true">
                   <img

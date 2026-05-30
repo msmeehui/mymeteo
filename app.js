@@ -75,6 +75,7 @@ const elements = {
   iconLegend: document.querySelector("#iconLegend"),
   radarPanel: document.querySelector(".radar-panel"),
   radarMap: document.querySelector("#radarMap"),
+  radarMapStatus: document.querySelector("#radarMapStatus"),
   radarTime: document.querySelector("#radarTime"),
   radarSlider: document.querySelector("#radarSlider"),
   rainForecastBadge: document.querySelector("#rainForecastBadge"),
@@ -1331,6 +1332,10 @@ function renderWeather(data) {
     title: `Weather observation ${formatTime(current.time)}`,
   });
 
+  if (!getActiveRadarDate()) {
+    setRainForecastBadgeCurrent(new Date(current.time * 1000));
+  }
+
   renderFiveDayForecast(data);
   renderSelectedWeather();
 }
@@ -2448,6 +2453,7 @@ function getBuienradarRadarMode(modeId = activeBuienradarRadarModeId) {
 }
 
 async function loadRadar() {
+  setRadarMapStatus("Loading rain forecast...");
   updateBuienradarModeControl();
 
   if (isInBuienradarBounds(selectedLocation)) {
@@ -2564,6 +2570,7 @@ function displayBuienradarRadar(radar) {
   elements.radarSlider.step = "1";
   setBuienradarFramePosition(0);
   updateSliderTimestamps();
+  clearRadarMapStatus();
   refreshMapSize();
 
   if (previousFrameUrls !== buienradarFrameUrls && !isBuienradarFrameUrlsCached(previousFrameUrls)) {
@@ -2606,6 +2613,7 @@ async function loadLibreWxrRadar() {
   elements.radarSlider.value = String(nextValue);
   setLibreWxrRadarPosition(nextValue);
   updateSliderTimestamps();
+  clearRadarMapStatus();
   refreshMapSize();
 }
 
@@ -2626,6 +2634,17 @@ function refreshMapSize() {
   });
 }
 
+function setRadarMapStatus(message, { isError = false } = {}) {
+  elements.radarMapStatus.textContent = message;
+  elements.radarMapStatus.hidden = false;
+  elements.radarMapStatus.classList.toggle("is-error", isError);
+}
+
+function clearRadarMapStatus() {
+  elements.radarMapStatus.hidden = true;
+  elements.radarMapStatus.classList.remove("is-error");
+}
+
 function disableRadar(message) {
   clearLibreWxrRadar();
   clearBuienradarRadar();
@@ -2635,7 +2654,8 @@ function disableRadar(message) {
   elements.radarSlider.max = "0";
   elements.radarSlider.value = "0";
   elements.radarTime.textContent = message;
-  setRainForecastBadgeText(message);
+  setRainForecastBadgeCurrent();
+  setRadarMapStatus(message, { isError: true });
   elements.radarSlider.removeAttribute("aria-valuetext");
   updateSliderTimestamps();
   elements.radarTime.classList.add("error");
@@ -2758,6 +2778,20 @@ function setRainForecastBadgeText(text, date, timezone = selectedLocation.timezo
     dayLabel.className = "rain-forecast-day";
     dayLabel.textContent = dayContext;
     elements.rainForecastBadge.append(dayLabel);
+  }
+}
+
+function setRainForecastBadgeCurrent(date) {
+  const fallbackTime = weatherData?.current?.time;
+  const displayDate = date || (Number.isFinite(fallbackTime) ? new Date(fallbackTime * 1000) : undefined);
+
+  elements.rainForecastBadge.classList.remove("is-message");
+  elements.rainForecastBadge.textContent = "Now";
+
+  if (displayDate instanceof Date && !Number.isNaN(displayDate.getTime())) {
+    elements.rainForecastBadge.dateTime = displayDate.toISOString();
+  } else {
+    elements.rainForecastBadge.removeAttribute("datetime");
   }
 }
 
