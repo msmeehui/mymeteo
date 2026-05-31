@@ -28,6 +28,12 @@ function wrap(title, body) {
 `;
 }
 
+function shift(body, dx = 0, dy = 0) {
+  return `<g transform="translate(${dx} ${dy})">
+    ${body}
+  </g>`;
+}
+
 function sun(cx, cy, r, ray = 7, stroke = 4) {
   const rays = Array.from({ length: 8 }, (_, index) => {
     const angle = (index * Math.PI) / 4;
@@ -143,19 +149,19 @@ function skyBehindCloud(dayPart) {
 }
 
 const icons = {
-  "clear-day": wrap("Clear sky", sun(32, 32, 12, 8, 4.4)),
-  "clear-night": wrap("Clear night", moon(31, 32, 17, 40, 25)),
-  "mostly-clear-day": wrap("Mostly clear", `${sun(28, 28, 13, 7, 4.2)}
-  ${cloudTiny()}`),
-  "mostly-clear-night": wrap("Mostly clear night", `${moon(30, 29, 15, 38, 22)}
-  ${cloudTiny()}`),
+  "clear-day": wrap("Clear sky", sun(32, 32, 12.5, 7.5, 4.4)),
+  "clear-night": wrap("Clear night", moon(31, 33, 17.5, 40, 25)),
+  "mostly-clear-day": wrap("Mostly clear", `${sun(28, 28, 13.5, 6.5, 4.2)}
+  ${shift(cloudSmall(), 1, 3)}`),
+  "mostly-clear-night": wrap("Mostly clear night", `${moon(30, 29, 15.5, 38, 22)}
+  ${shift(cloudSmall(), 1, 3)}`),
   "partly-cloudy-day": wrap("Partly cloudy", `${skyBehindCloud("day")}
-  ${cloudMain()}`),
+  ${shift(cloudMain(), 0, 3)}`),
   "partly-cloudy-night": wrap("Partly cloudy night", `${skyBehindCloud("night")}
-  ${cloudMain()}`),
-  "overcast-day": wrap("Overcast", cloudWide()),
+  ${shift(cloudMain(), 0, 3)}`),
+  "overcast-day": wrap("Overcast", shift(cloudWide(), 0, 4)),
   "overcast-night": wrap("Overcast night", `${skyBehindCloud("night")}
-  ${cloudWide()}`),
+  ${shift(cloudWide(), 0, 4)}`),
   "fog-day": wrap("Fog", `${cloudMain()}
   ${fogLines()}`),
   "fog-night": wrap("Fog night", `${moon(23, 19, 14, 31, 13)}

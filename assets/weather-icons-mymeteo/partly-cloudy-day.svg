@@ -11,5 +11,7 @@
     <line x1="22" y1="3" x2="22" y2="-2"/>
     <line x1="34" y1="8" x2="37.6" y2="4.4"/>
   </g>
-  <path d="M17 43h29a9 9 0 0 0 1-18 13 13 0 0 0-24-4 10 10 0 0 0-6 22Z" fill="#fff" stroke="#9ea3a5" stroke-width="4.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <g transform="translate(0 3)">
+    <path d="M17 43h29a9 9 0 0 0 1-18 13 13 0 0 0-24-4 10 10 0 0 0-6 22Z" fill="#fff" stroke="#9ea3a5" stroke-width="4.4" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
 </svg>
