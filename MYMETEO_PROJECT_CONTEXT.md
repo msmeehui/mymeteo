@@ -1,6 +1,6 @@
 # MyMeteo Project Context
 
-Last updated: 2026-06-04
+Last updated: 2026-06-05
 
 This file is the shared product memory for MyMeteo. Read it before discussing or changing the app in a new Codex chat. It summarizes the decisions, trade-offs, and design philosophy that emerged from the MyMeteo development chats, the app changelog, the README, git history, and the current implementation.
 
@@ -80,6 +80,8 @@ The radar slider should control the radar map and selected radar time. In an ear
 The leftmost slider position should show `Now` rather than an exact technical radar time. The exact radar time is still preserved in title/ARIA text. When the slider moves away from the left edge, the visible label switches to `At HH:MM`, then returns to `Now` when the slider returns to the left edge.
 
 The radar should not autoplay. It should load at the beginning and stay there until the user intentionally drags the slider.
+
+The Today view can also offer a compact outfit mode. A small clothing/map toggle in the radar area switches between the rain radar and an illustrated outfit recommendation for the selected time. The weather card remains visible and should continue to update with the slider. Outfit changes should be stable and meaningful, using priority rules so rain, snow, storm, fog, and strong wind override dry temperature bands. The app renders the layered v2 asset set in `assets/outfit-scenes/v2/`, with wide weather WebP backgrounds and transparent WebP character/outfit foreground layers so the outfit view can fill different radar-area aspect ratios more naturally while keeping downloads light. The v2 set covers the full current fourteen-state outfit set from hot sunny through heavy snow. Older experiments, generated sources, PNG reference layers, preview pages, and reference-character photos belong in the ignored `private/` archive rather than the public app asset path. Outfit assets are loaded on demand when outfit mode opens; remaining scenes preload progressively during idle time and are skipped for Save-Data or very slow connections. The hidden `?outfitState=<state-id>` query parameter can force a valid outfit scene for QA without adding visible UI.
 
 ### Show Useful Data As Soon As It Exists
 

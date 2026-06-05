@@ -1,12 +1,13 @@
 # MyMeteo
 
-MyMeteo is a small personal weather dashboard with location search, current-location support, live weather, a 5-day outlook, and moving rain radar.
+MyMeteo is a small personal weather dashboard with location search, current-location support, live weather, outfit suggestions, a 5-day outlook, and moving rain radar.
 
 [Open MyMeteo](https://msmeehui.github.io/mymeteo/)
 
 <p>
-  <img src="assets/mymeteo-raintab.png" alt="MyMeteo Today tab" width="320">
-  <img src="assets/mymeteo-5daystab.png" alt="MyMeteo 5-day forecast tab" width="320">
+  <img src="assets/mymeteo-raintab.png" alt="MyMeteo Today rain radar view" width="260">
+  <img src="assets/mymeteo-outfit.png" alt="MyMeteo Today outfit suggestion view" width="260">
+  <img src="assets/mymeteo-5daystab.png" alt="MyMeteo 5-day forecast tab" width="260">
 </p>
 
 ## Features
@@ -14,7 +15,7 @@ MyMeteo is a small personal weather dashboard with location search, current-loca
 - Search for a city or place and load the local forecast
 - Use the browser's current-location permission to check the weather nearby
 - View current temperature, conditions, rain, wind, and daily highs/lows
-- Switch between rain radar and a 5-day forecast table
+- Switch between rain radar, outfit suggestions, and a 5-day forecast table
 - Animate rain radar frames with a time slider
 - Install-friendly icons and web app manifest
 

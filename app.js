@@ -11,6 +11,12 @@ const libreWxrRadarUrl = "https://api.librewxr.net/public/weather-maps.json";
 const buienradarAnimationBaseUrl = "https://image.buienradar.nl/2.0/image/animation";
 const gifDecoderModuleUrl = "https://esm.sh/gifuct-js@2.1.2?bundle";
 const weatherIconBasePath = "assets/weather-icons-mymeteo/";
+const outfitSceneBackgroundBasePath = "assets/outfit-scenes/v2/backgrounds/";
+const outfitSceneCharacterBasePath = "assets/outfit-scenes/v2/characters/";
+const outfitSceneOverrideQueryParam = "outfitState";
+const outfitScenePreloadInitialDelayMs = 1200;
+const outfitScenePreloadStepDelayMs = 700;
+const outfitScenePreloadIdleTimeoutMs = 1500;
 const buienradarRadarCacheMaxAgeMs = 9 * 60 * 1000;
 const currentLocationSource = "current";
 const currentLocationRefreshCooldownMs = 60 * 1000;
@@ -78,6 +84,10 @@ const elements = {
   radarMapStatus: document.querySelector("#radarMapStatus"),
   radarTime: document.querySelector("#radarTime"),
   radarSlider: document.querySelector("#radarSlider"),
+  outfitModeToggle: document.querySelector("#outfitModeToggle"),
+  outfitScene: document.querySelector("#outfitScene"),
+  outfitSceneBackground: document.querySelector("#outfitSceneBackground"),
+  outfitSceneCharacter: document.querySelector("#outfitSceneCharacter"),
   rainForecastBadge: document.querySelector("#rainForecastBadge"),
   sliderTimestamps: document.querySelector("#sliderTimestamps"),
 };
@@ -337,6 +347,152 @@ const weatherIconLegendGroups = [
   },
 ];
 
+const outfitScenes = {
+  "hot-sunny": {
+    background: "hot-sunny.webp",
+    character: "hot-sunny.webp",
+    label: "Hot sunny outfit",
+    alt: "Suggested outfit for hot sunny weather: shorts, T-shirt, sunglasses, sandals, and water bottle.",
+    characterMaxWidth: "70%",
+    characterMaxWidthWide: "62%",
+  },
+  "warm-fair": {
+    background: "warm-fair.webp",
+    character: "warm-fair.webp",
+    label: "Warm fair-weather outfit",
+    alt: "Suggested outfit for warm dry weather: light shirt, light trousers, and casual shoes.",
+    characterMaxWidth: "70%",
+    characterMaxWidthWide: "62%",
+  },
+  "mild-cloudy": {
+    background: "mild-cloudy.webp",
+    character: "mild-cloudy.webp",
+    label: "Mild cloudy outfit",
+    alt: "Suggested outfit for mild cloudy weather: long trousers and a light jumper.",
+    characterMaxWidth: "70%",
+    characterMaxWidthWide: "62%",
+  },
+  "cool-dry": {
+    background: "cool-dry.webp",
+    character: "cool-dry.webp",
+    label: "Cool dry outfit",
+    alt: "Suggested outfit for cool dry weather: long trousers, sweater, and light jacket.",
+    characterMaxWidth: "72%",
+    characterMaxWidthWide: "64%",
+  },
+  "cold-dry": {
+    background: "cold-dry.webp",
+    character: "cold-dry.webp",
+    label: "Cold dry outfit",
+    alt: "Suggested outfit for cold dry weather: warm coat, scarf, long trousers, and closed shoes.",
+    characterMaxWidth: "74%",
+    characterMaxWidthWide: "66%",
+  },
+  "freezing-dry": {
+    background: "freezing-dry.webp",
+    character: "freezing-dry.webp",
+    label: "Freezing dry outfit",
+    alt: "Suggested outfit for freezing dry weather: thick coat, scarf, gloves, beanie, and warm shoes.",
+    characterMaxWidth: "76%",
+    characterMaxWidthWide: "68%",
+  },
+  fog: {
+    background: "fog.webp",
+    character: "fog.webp",
+    label: "Fog outfit",
+    alt: "Suggested outfit for fog: long trousers, closed shoes, and a light jacket.",
+    characterMaxWidth: "70%",
+    characterMaxWidthWide: "62%",
+  },
+  drizzle: {
+    background: "drizzle.webp",
+    character: "drizzle.webp",
+    label: "Drizzle outfit",
+    alt: "Suggested outfit for drizzle: long trousers, closed shoes, and a light rain jacket.",
+    characterMaxWidth: "76%",
+    characterMaxWidthWide: "66%",
+  },
+  rain: {
+    background: "rain.webp",
+    character: "rain.webp",
+    label: "Rain outfit",
+    alt: "Suggested outfit for rain: waterproof jacket, umbrella, long trousers, and closed shoes.",
+    characterMaxWidth: "86%",
+    characterMaxWidthMobile: "98%",
+    characterMaxWidthWide: "76%",
+  },
+  "heavy-rain": {
+    background: "heavy-rain.webp",
+    character: "heavy-rain.webp",
+    label: "Heavy rain outfit",
+    alt: "Suggested outfit for heavy rain: waterproof jacket, rain pants, sturdy shoes, and umbrella.",
+    characterMaxWidth: "86%",
+    characterMaxWidthMobile: "98%",
+    characterMaxWidthWide: "76%",
+  },
+  snow: {
+    background: "snow.webp",
+    character: "snow.webp",
+    label: "Snow outfit",
+    alt: "Suggested outfit for snow: winter coat, scarf, gloves, beanie, and boots.",
+    characterMaxWidth: "72%",
+    characterMaxWidthWide: "62%",
+  },
+  "heavy-snow": {
+    background: "heavy-snow.webp",
+    character: "heavy-snow.webp",
+    label: "Heavy snow outfit",
+    alt: "Suggested outfit for heavy snow: thick winter coat, scarf, gloves, beanie, and winter boots.",
+    characterMaxWidth: "76%",
+    characterMaxWidthWide: "68%",
+  },
+  thunderstorm: {
+    background: "thunderstorm.webp",
+    character: "thunderstorm.webp",
+    label: "Thunderstorm outfit",
+    alt: "Suggested outfit for a thunderstorm: hooded waterproof jacket, long trousers, and sturdy shoes.",
+    backgroundPositionMobile: "18% center",
+    characterMaxWidth: "76%",
+    characterMaxWidthWide: "66%",
+  },
+  windy: {
+    background: "windy.webp",
+    character: "windy.webp",
+    label: "Windy outfit",
+    alt: "Suggested outfit for windy weather: windbreaker, scarf, long trousers, and closed shoes.",
+    characterMaxWidth: "84%",
+    characterMaxWidthMobile: "96%",
+    characterMaxWidthWide: "72%",
+    characterX: "48%",
+  },
+};
+
+const outfitDefaultSceneId = "mild-cloudy";
+const outfitSceneIds = Object.keys(outfitScenes);
+const outfitTemperatureStates = [
+  { id: "freezing-dry", min: -Infinity, max: 0 },
+  { id: "cold-dry", min: 1, max: 7 },
+  { id: "cool-dry", min: 8, max: 13 },
+  { id: "mild-cloudy", min: 14, max: 19 },
+  { id: "warm-fair", min: 20, max: 25 },
+  { id: "hot-sunny", min: 26, max: Infinity },
+];
+const outfitThunderstormCodes = new Set([95, 96, 99]);
+const outfitHeavySnowCodes = new Set([75, 86]);
+const outfitSnowCodes = new Set([71, 73, 77, 85]);
+const outfitHeavyRainCodes = new Set([65, 82]);
+const outfitFreezingRainCodes = new Set([56, 57, 66, 67]);
+const outfitRainCodes = new Set([61, 63, 80, 81]);
+const outfitDrizzleCodes = new Set([51, 53, 55]);
+const outfitFogCodes = new Set([45, 48]);
+const outfitWindEnterKmh = 39;
+const outfitWindLeaveKmh = 35;
+const outfitPrecipitationEnterChance = 50;
+const outfitPrecipitationLeaveChance = 40;
+const outfitLightPrecipitationEnterChance = 30;
+const outfitLightPrecipitationLeaveChance = 20;
+const outfitTemperatureHysteresisC = 1;
+
 const snowWeatherCodes = new Set([71, 73, 75, 77, 85, 86]);
 // Near-even rain/snow totals should read as snow in the compact label.
 const snowCloseSplitRatio = 0.85;
@@ -390,6 +546,13 @@ let buienradarPreloadTimer;
 let weatherData;
 let activeRadarDate;
 let activeMobileView = "rain";
+let isOutfitMode = false;
+let activeOutfitSceneId;
+let preloadedOutfitSceneIds = new Set();
+let outfitScenePreloadQueue = [];
+let outfitScenePreloadTimer;
+let outfitScenePreloadIdleHandle;
+const outfitScenePreloadImages = new Map();
 let shouldCenterMapWhenShown = false;
 let expandedForecastDayKey;
 let selectedLocation = loadStoredLocation() || DEFAULT_LOCATION;
@@ -467,6 +630,7 @@ function bindEvents() {
     trackAnalyticsEvent("refresh");
     loadAll();
   });
+  elements.outfitModeToggle.addEventListener("click", toggleOutfitMode);
   elements.rainTab.addEventListener("click", () => {
     trackAnalyticsEvent("rain_tab");
     setMobileView("rain");
@@ -1232,6 +1396,7 @@ function applyLocation(location, analyticsEventName) {
   const nextLocation = normalizeLocation(location);
   currentLocationRefreshState = isCurrentLocation(nextLocation) ? currentLocationRefreshState : "idle";
   selectedLocation = nextLocation;
+  activeOutfitSceneId = undefined;
   saveLocation(selectedLocation);
   hideLocationOptions();
   renderLocation();
@@ -1379,12 +1544,19 @@ function renderSelectedWeather(date = getSelectedWeatherDate()) {
   const isCurrentTime = !date || Math.abs(date - currentDate) < 30 * 60 * 1000;
   const snapshot = isCurrentTime ? currentSnapshot : getHourlyWeatherSnapshot(date, weatherData.hourly) || currentSnapshot;
   const summaryDate = date || currentDate;
+  const precipitation = buildSelectedDayPrecipitation(weatherData, summaryDate, snapshot);
+  const hourlyPrecipitation = getClosestHourlyPrecipitation(summaryDate);
+  const adjustedWeatherCode = getRadarAdjustedSnapshotWeatherCode(snapshot, summaryDate);
 
   renderCurrentTemperatureRange(buildSelectedDayTemperatureRange(weatherData, summaryDate, snapshot));
-  renderCurrentPrecipitation(buildSelectedDayPrecipitation(weatherData, summaryDate, snapshot));
+  renderCurrentPrecipitation(precipitation);
 
-  renderTimedCondition(getRadarAdjustedSnapshotCondition(snapshot, summaryDate));
+  renderTimedCondition(getCondition(adjustedWeatherCode, snapshot.isDaytime));
   renderTemperatureAndWind(snapshot);
+  if (isOutfitMode) {
+    renderOutfitScene(snapshot, hourlyPrecipitation || precipitation, adjustedWeatherCode);
+    elements.outfitScene.hidden = false;
+  }
 }
 
 function getSelectedWeatherDate() {
@@ -1449,15 +1621,9 @@ function getClosestTimeIndex(times, targetTime) {
   return closestIndex;
 }
 
-function getRadarAdjustedSnapshotCondition(snapshot, date) {
+function getRadarAdjustedSnapshotWeatherCode(snapshot, date) {
   const hourlyPrecipitation = getClosestHourlyPrecipitation(date);
-  const adjustedWeatherCode = getPrecipitationAdjustedWeatherCode(snapshot.weatherCode, hourlyPrecipitation);
-
-  if (adjustedWeatherCode === snapshot.weatherCode) {
-    return snapshot.condition;
-  }
-
-  return getCondition(adjustedWeatherCode, snapshot.isDaytime);
+  return getPrecipitationAdjustedWeatherCode(snapshot.weatherCode, hourlyPrecipitation);
 }
 
 function getClosestHourlyPrecipitation(date) {
@@ -1516,6 +1682,264 @@ function getActiveRadarDate() {
   }
 
   return getRadarDateForSlider(Number(elements.radarSlider.value) || 0);
+}
+
+function toggleOutfitMode() {
+  setOutfitMode(!isOutfitMode);
+  trackAnalyticsEvent(isOutfitMode ? "outfit_mode" : "radar_mode");
+}
+
+function setOutfitMode(enabled) {
+  isOutfitMode = Boolean(enabled);
+  elements.radarPanel.classList.toggle("is-outfit-mode", isOutfitMode);
+  elements.outfitModeToggle.setAttribute("aria-pressed", String(isOutfitMode));
+  updateOutfitModeToggle();
+
+  if (isOutfitMode) {
+    renderSelectedWeather();
+    scheduleOutfitScenePreload();
+  } else {
+    elements.outfitScene.hidden = true;
+    cancelOutfitScenePreload();
+    refreshMapSize();
+  }
+}
+
+function updateOutfitModeToggle() {
+  const label = isOutfitMode ? "Show rain radar" : "Show outfit suggestion";
+  const iconName = isOutfitMode ? "map" : "shirt";
+  const icon = document.createElement("i");
+  icon.setAttribute("data-lucide", iconName);
+  icon.setAttribute("aria-hidden", "true");
+  elements.outfitModeToggle.title = label;
+  elements.outfitModeToggle.setAttribute("aria-label", label);
+  elements.outfitModeToggle.replaceChildren(icon);
+  if (window.lucide) {
+    window.lucide.createIcons();
+  }
+}
+
+function renderOutfitScene(snapshot, precipitation, weatherCode) {
+  const sceneId = getOutfitSceneOverrideId() || getOutfitSceneId(snapshot, precipitation, weatherCode);
+  const scene = outfitScenes[sceneId] || outfitScenes[outfitDefaultSceneId];
+
+  if (!scene) {
+    return;
+  }
+
+  if (activeOutfitSceneId !== sceneId) {
+    activeOutfitSceneId = sceneId;
+    preloadedOutfitSceneIds.add(sceneId);
+    elements.outfitSceneBackground.src = `${outfitSceneBackgroundBasePath}${scene.background}`;
+    elements.outfitSceneCharacter.src = `${outfitSceneCharacterBasePath}${scene.character}`;
+    setOutfitSceneProperty("--outfit-background-position", scene.backgroundPosition);
+    setOutfitSceneProperty("--outfit-background-position-mobile", scene.backgroundPositionMobile);
+    setOutfitSceneProperty("--outfit-background-position-wide", scene.backgroundPositionWide);
+    setOutfitSceneProperty("--outfit-character-height", scene.characterHeight);
+    setOutfitSceneProperty("--outfit-character-height-mobile", scene.characterHeightMobile);
+    setOutfitSceneProperty("--outfit-character-height-wide", scene.characterHeightWide);
+    setOutfitSceneProperty("--outfit-character-max-width", scene.characterMaxWidth);
+    setOutfitSceneProperty("--outfit-character-max-width-mobile", scene.characterMaxWidthMobile);
+    setOutfitSceneProperty("--outfit-character-max-width-wide", scene.characterMaxWidthWide);
+    setOutfitSceneProperty("--outfit-character-x", scene.characterX);
+  }
+
+  elements.outfitSceneCharacter.alt = scene.alt;
+  elements.outfitSceneCharacter.title = scene.label;
+  elements.outfitScene.dataset.outfitScene = sceneId;
+  elements.outfitScene.setAttribute("aria-label", scene.label);
+}
+
+function setOutfitSceneProperty(property, value) {
+  if (value) {
+    elements.outfitScene.style.setProperty(property, value);
+  } else {
+    elements.outfitScene.style.removeProperty(property);
+  }
+}
+
+function getOutfitSceneOverrideId() {
+  const sceneId = new URLSearchParams(window.location.search).get(outfitSceneOverrideQueryParam);
+  return outfitScenes[sceneId] ? sceneId : undefined;
+}
+
+function getOutfitSceneId(snapshot = {}, precipitation, weatherCode = snapshot.weatherCode) {
+  const code = Number(weatherCode);
+  const chance = Number.isFinite(precipitation?.chance) ? precipitation.chance : undefined;
+  const type = precipitation?.type === "snow" ? "snow" : "rain";
+  const isSnow = type === "snow";
+  const isRain = type === "rain";
+  const heavyPrecipitationThreshold = isHeavyOutfitScene(activeOutfitSceneId)
+    ? outfitPrecipitationLeaveChance
+    : outfitPrecipitationEnterChance;
+  const precipitationThreshold = isPrecipitationOutfitScene(activeOutfitSceneId)
+    ? outfitPrecipitationLeaveChance
+    : outfitPrecipitationEnterChance;
+  const lightPrecipitationThreshold = activeOutfitSceneId === "drizzle"
+    ? outfitLightPrecipitationLeaveChance
+    : outfitLightPrecipitationEnterChance;
+
+  if (outfitThunderstormCodes.has(code)) {
+    return "thunderstorm";
+  }
+
+  if (
+    outfitHeavySnowCodes.has(code)
+    || (isSnow && precipitation?.intensity === "heavy" && isChanceAtLeast(chance, heavyPrecipitationThreshold))
+  ) {
+    return "heavy-snow";
+  }
+
+  if (outfitSnowCodes.has(code) || (isSnow && isChanceAtLeast(chance, lightPrecipitationThreshold))) {
+    return "snow";
+  }
+
+  if (
+    outfitHeavyRainCodes.has(code)
+    || (isRain && precipitation?.intensity === "heavy" && isChanceAtLeast(chance, heavyPrecipitationThreshold))
+  ) {
+    return "heavy-rain";
+  }
+
+  if (outfitFreezingRainCodes.has(code)) {
+    return "heavy-rain";
+  }
+
+  if (outfitRainCodes.has(code) || (isRain && isChanceAtLeast(chance, precipitationThreshold))) {
+    return "rain";
+  }
+
+  if (
+    outfitDrizzleCodes.has(code)
+    || (isRain && precipitation?.intensity !== "heavy" && isChanceAtLeast(chance, lightPrecipitationThreshold))
+  ) {
+    return "drizzle";
+  }
+
+  if (outfitFogCodes.has(code)) {
+    return "fog";
+  }
+
+  if (Number.isFinite(snapshot.windSpeed)) {
+    const windThreshold = activeOutfitSceneId === "windy" ? outfitWindLeaveKmh : outfitWindEnterKmh;
+    if (snapshot.windSpeed >= windThreshold) {
+      return "windy";
+    }
+  }
+
+  return getTemperatureOutfitSceneId(snapshot.temperature, activeOutfitSceneId);
+}
+
+function getTemperatureOutfitSceneId(temperature, previousSceneId) {
+  if (!Number.isFinite(temperature)) {
+    return outfitDefaultSceneId;
+  }
+
+  const previousState = outfitTemperatureStates.find((state) => state.id === previousSceneId);
+  if (
+    previousState
+    && temperature >= previousState.min - outfitTemperatureHysteresisC
+    && temperature <= previousState.max + outfitTemperatureHysteresisC
+  ) {
+    return previousState.id;
+  }
+
+  return outfitTemperatureStates.find((state) => temperature >= state.min && temperature <= state.max)?.id || outfitDefaultSceneId;
+}
+
+function isChanceAtLeast(chance, threshold) {
+  return Number.isFinite(chance) && chance >= threshold;
+}
+
+function isPrecipitationOutfitScene(sceneId) {
+  return ["drizzle", "rain", "heavy-rain", "snow", "heavy-snow"].includes(sceneId);
+}
+
+function isHeavyOutfitScene(sceneId) {
+  return sceneId === "heavy-rain" || sceneId === "heavy-snow";
+}
+
+function scheduleOutfitScenePreload() {
+  if (!shouldPreloadOutfitScenes() || outfitScenePreloadTimer || outfitScenePreloadIdleHandle || outfitScenePreloadQueue.length) {
+    return;
+  }
+
+  outfitScenePreloadQueue = outfitSceneIds.filter(
+    (sceneId) => sceneId !== activeOutfitSceneId && !preloadedOutfitSceneIds.has(sceneId),
+  );
+  scheduleNextOutfitScenePreload(outfitScenePreloadInitialDelayMs);
+}
+
+function shouldPreloadOutfitScenes() {
+  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+
+  return isOutfitMode && !(connection?.saveData || ["slow-2g", "2g"].includes(connection?.effectiveType));
+}
+
+function scheduleNextOutfitScenePreload(delayMs = outfitScenePreloadStepDelayMs) {
+  if (!shouldPreloadOutfitScenes() || !outfitScenePreloadQueue.length) {
+    return;
+  }
+
+  outfitScenePreloadTimer = window.setTimeout(() => {
+    outfitScenePreloadTimer = undefined;
+
+    if (!shouldPreloadOutfitScenes()) {
+      return;
+    }
+
+    if ("requestIdleCallback" in window) {
+      outfitScenePreloadIdleHandle = window.requestIdleCallback(preloadNextOutfitScene, {
+        timeout: outfitScenePreloadIdleTimeoutMs,
+      });
+    } else {
+      preloadNextOutfitScene();
+    }
+  }, delayMs);
+}
+
+function preloadNextOutfitScene() {
+  outfitScenePreloadIdleHandle = undefined;
+
+  if (!shouldPreloadOutfitScenes()) {
+    return;
+  }
+
+  const sceneId = outfitScenePreloadQueue.shift();
+  if (!sceneId) {
+    return;
+  }
+
+  preloadOutfitSceneImages(sceneId);
+  scheduleNextOutfitScenePreload();
+}
+
+function preloadOutfitSceneImages(sceneId) {
+  const scene = outfitScenes[sceneId];
+  if (!scene || preloadedOutfitSceneIds.has(sceneId)) {
+    return;
+  }
+
+  preloadedOutfitSceneIds.add(sceneId);
+  const background = new Image();
+  const character = new Image();
+  background.decoding = "async";
+  character.decoding = "async";
+  outfitScenePreloadImages.set(sceneId, [background, character]);
+  background.src = `${outfitSceneBackgroundBasePath}${scene.background}`;
+  character.src = `${outfitSceneCharacterBasePath}${scene.character}`;
+}
+
+function cancelOutfitScenePreload() {
+  window.clearTimeout(outfitScenePreloadTimer);
+  outfitScenePreloadTimer = undefined;
+  outfitScenePreloadQueue = [];
+
+  if (outfitScenePreloadIdleHandle && "cancelIdleCallback" in window) {
+    window.cancelIdleCallback(outfitScenePreloadIdleHandle);
+  }
+
+  outfitScenePreloadIdleHandle = undefined;
 }
 
 function renderFiveDayForecast(data) {

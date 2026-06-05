@@ -7,3 +7,8 @@ build/
 
 # Local-only project material that should not be published
 /private/
+/reference-character/
+/assets/outfit-scenes/v1/
+/assets/outfit-scenes/v2/source/
+/assets/outfit-scenes/v2/preview.html
+/assets/outfit-scenes/v2/characters/*.png

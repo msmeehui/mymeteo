@@ -606,6 +606,82 @@ h1 {
   background: #dde4df;
 }
 
+.outfit-scene {
+  --outfit-background-position: center center;
+  --outfit-background-position-mobile: var(--outfit-background-position);
+  --outfit-background-position-wide: var(--outfit-background-position);
+  --outfit-character-x: 50%;
+  --outfit-character-height: calc(100% - 116px);
+  --outfit-character-height-mobile: calc(100% - 106px);
+  --outfit-character-height-wide: calc(100% - 116px);
+  --outfit-character-max-width: 78%;
+  --outfit-character-max-width-mobile: 88%;
+  --outfit-character-max-width-wide: 62%;
+
+  position: absolute;
+  inset: 0;
+  z-index: 840;
+  min-height: 265px;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #dde4df;
+}
+
+.outfit-scene[hidden] {
+  display: none;
+}
+
+.outfit-scene-background,
+.outfit-scene-character {
+  position: absolute;
+  display: block;
+  pointer-events: none;
+  user-select: none;
+}
+
+.outfit-scene-background {
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: var(--outfit-background-position);
+}
+
+.outfit-scene-character {
+  left: var(--outfit-character-x);
+  bottom: -1px;
+  z-index: 2;
+  width: auto;
+  height: var(--outfit-character-height);
+  max-width: var(--outfit-character-max-width);
+  object-fit: contain;
+  object-position: center bottom;
+  transform: translateX(-50%);
+}
+
+.radar-panel.is-outfit-mode .radar-map-status {
+  display: none;
+}
+
+.radar-panel.is-outfit-mode .radar-map {
+  background: transparent;
+}
+
+.radar-panel.is-outfit-mode .radar-map .leaflet-pane,
+.radar-panel.is-outfit-mode .radar-map .leaflet-control-attribution,
+.radar-panel.is-outfit-mode .radar-map .leaflet-control-zoom {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.radar-panel.is-outfit-mode .radar-map .buienradar-mode-control {
+  visibility: visible;
+  pointer-events: auto;
+}
+
 .radar-map-status {
   position: absolute;
   bottom: 10px;
@@ -945,6 +1021,40 @@ h1 {
   border-top-color: var(--rain);
   border-radius: 50%;
   animation: spin 800ms linear infinite;
+}
+
+.outfit-mode-toggle {
+  position: absolute;
+  right: 7px;
+  bottom: 145px;
+  z-index: 880;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgb(23 32 27 / 0.24);
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.96);
+  color: var(--ink);
+  box-shadow: 0 2px 7px rgb(23 32 27 / 0.17);
+  cursor: pointer;
+}
+
+.outfit-mode-toggle:hover,
+.outfit-mode-toggle:focus-visible {
+  background: #fffaf0;
+}
+
+.outfit-mode-toggle:focus-visible {
+  outline: 2px solid var(--rain);
+  outline-offset: 2px;
+}
+
+.outfit-mode-toggle svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 2.4;
 }
 
 .radar-slider {
@@ -2004,6 +2114,19 @@ input[type="range"]::-moz-range-thumb {
     min-height: 180px;
   }
 
+  .outfit-scene {
+    min-height: 180px;
+  }
+
+  .outfit-scene-character {
+    height: var(--outfit-character-height-mobile);
+    max-width: var(--outfit-character-max-width-mobile);
+  }
+
+  .outfit-scene-background {
+    object-position: var(--outfit-background-position-mobile);
+  }
+
   .radar-map-wrap {
     height: 100%;
   }
@@ -2018,6 +2141,13 @@ input[type="range"]::-moz-range-thumb {
     max-width: calc(100% - 16px);
     padding: 6px 8px;
     font-size: 0.68rem;
+  }
+
+  .outfit-mode-toggle {
+    right: 8px;
+    bottom: 145px;
+    width: 40px;
+    height: 40px;
   }
 
   .radar-weather-card {
@@ -2119,6 +2249,10 @@ input[type="range"]::-moz-range-thumb {
       --radar-support-width: 56px;
 
       padding: 7px 8px;
+    }
+
+    .outfit-scene {
+      --outfit-character-height-mobile: calc(100% - 98px);
     }
 
     .radar-weather-card .current {
@@ -2712,6 +2846,19 @@ input[type="range"]::-moz-range-thumb {
   .radar-map-wrap,
   .radar-map {
     min-height: 0;
+  }
+
+  .outfit-scene {
+    min-height: 0;
+  }
+
+  .outfit-scene-character {
+    height: var(--outfit-character-height-wide);
+    max-width: var(--outfit-character-max-width-wide);
+  }
+
+  .outfit-scene-background {
+    object-position: var(--outfit-background-position-wide);
   }
 
   .radar-weather-card .condition-cluster {

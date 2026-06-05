@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>MyMeteo</title>
     <meta name="theme-color" content="#4aa6c9" />
-    <meta name="description" content="A simple weather forecast with rain radar and a 5-day outlook." />
+    <meta name="description" content="A simple weather forecast with rain radar, outfit suggestions, and a 5-day outlook." />
     <meta property="og:title" content="MyMeteo" />
-    <meta property="og:description" content="A simple weather forecast with rain radar and a 5-day outlook." />
+    <meta property="og:description" content="A simple weather forecast with rain radar, outfit suggestions, and a 5-day outlook." />
     <meta property="og:type" content="website" />
     <meta property="og:image" content="https://mymeteo.nl/icon-512-red-20260523.png" />
     <meta property="og:image:width" content="512" />
@@ -15,7 +15,7 @@
     <meta property="og:image:alt" content="MyMeteo red umbrella icon" />
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="MyMeteo" />
-    <meta name="twitter:description" content="A simple weather forecast with rain radar and a 5-day outlook." />
+    <meta name="twitter:description" content="A simple weather forecast with rain radar, outfit suggestions, and a 5-day outlook." />
     <meta name="twitter:image" content="https://mymeteo.nl/icon-512-red-20260523.png" />
     <meta name="apple-mobile-web-app-title" content="MyMeteo" />
     <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon-red-20260523.png" />
@@ -32,7 +32,7 @@
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin=""
     />
-    <link rel="stylesheet" href="styles.css?v=20260530-13" />
+    <link rel="stylesheet" href="styles.css?v=20260605-07" />
   </head>
   <body>
     <main class="weather-app" aria-live="polite">
@@ -136,9 +136,38 @@
         </div>
         <div class="radar-map-wrap">
           <div class="radar-map" id="radarMap"></div>
+          <figure class="outfit-scene" id="outfitScene" hidden>
+            <img
+              class="outfit-scene-background"
+              id="outfitSceneBackground"
+              width="1920"
+              height="1200"
+              alt=""
+              aria-hidden="true"
+              decoding="async"
+            />
+            <img
+              class="outfit-scene-character"
+              id="outfitSceneCharacter"
+              width="1024"
+              height="1536"
+              alt="Suggested outfit"
+              decoding="async"
+            />
+          </figure>
           <p class="radar-map-status" id="radarMapStatus" role="status" aria-live="polite">
             Loading rain forecast...
           </p>
+          <button
+            class="outfit-mode-toggle"
+            id="outfitModeToggle"
+            type="button"
+            aria-label="Show outfit suggestion"
+            aria-pressed="false"
+            title="Show outfit suggestion"
+          >
+            <i data-lucide="shirt" aria-hidden="true"></i>
+          </button>
           <section class="now-panel radar-weather-card" aria-label="Selected time weather">
             <div class="current">
               <time class="rain-forecast-badge" id="rainForecastBadge">Now</time>
@@ -376,6 +405,11 @@
               <span class="info-section-chevron" aria-hidden="true"></span>
             </summary>
             <div class="info-section-body changelog">
+              <h3>5 June 2026</h3>
+              <ul>
+                <li>Added an outfit mode in the Today view, with illustrated clothing suggestions that follow the selected weather time.</li>
+              </ul>
+
               <h3>4 June 2026</h3>
               <ul>
                 <li>Adjusted near-term rain chances in the Netherlands with Buienradar data, with radar influence fading from the first hours toward the 8-hour limit.</li>
@@ -450,6 +484,6 @@
       crossorigin=""
     ></script>
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-    <script src="app.js?v=20260604-01"></script>
+    <script src="app.js?v=20260605-08"></script>
   </body>
 </html>
