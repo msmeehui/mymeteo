@@ -960,7 +960,7 @@ h1 {
 
 .leaflet-bottom .buienradar-mode-control {
   margin-bottom: 8px;
-  transform: translateY(-18px);
+  transform: translateY(-68px);
 }
 
 .leaflet-bottom .leaflet-control-zoom {
@@ -1026,7 +1026,7 @@ h1 {
 .outfit-mode-toggle {
   position: absolute;
   right: 7px;
-  bottom: 145px;
+  bottom: 95px;
   z-index: 880;
   width: 42px;
   height: 42px;
@@ -1319,6 +1319,53 @@ input[type="range"]::-moz-range-thumb {
   margin: 0;
 }
 
+.legend-body {
+  gap: 14px;
+}
+
+.legend-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgb(47 127 159 / 0.14);
+  border-radius: 7px;
+  background: rgb(47 127 159 / 0.07);
+}
+
+.legend-tab {
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.legend-tab.is-active {
+  background: rgb(255 250 240 / 0.96);
+  color: var(--ink);
+  box-shadow: 0 1px 4px rgb(23 32 27 / 0.12);
+}
+
+.legend-tab:focus-visible {
+  outline: 2px solid var(--rain);
+  outline-offset: 2px;
+}
+
+.legend-panel[hidden] {
+  display: none;
+}
+
+.legend-panel {
+  display: grid;
+}
+
 .icon-legend {
   gap: 14px;
 }
@@ -1389,6 +1436,98 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .icon-legend-description {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.3;
+}
+
+.outfit-legend {
+  gap: 14px;
+}
+
+.outfit-legend-intro {
+  margin: 0;
+}
+
+.outfit-legend-group {
+  display: grid;
+  gap: 7px;
+}
+
+.info-section-body .outfit-legend-group h3 {
+  margin: 0;
+}
+
+.outfit-legend-list {
+  display: grid;
+  gap: 0;
+}
+
+.outfit-legend-item {
+  min-width: 0;
+  min-height: 88px;
+  padding: 9px 0;
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.outfit-legend-item + .outfit-legend-item {
+  border-top: 1px solid rgb(47 127 159 / 0.14);
+}
+
+.outfit-legend-thumb {
+  position: relative;
+  width: 72px;
+  height: 82px;
+  display: block;
+  overflow: hidden;
+  border: 1px solid rgb(47 127 159 / 0.14);
+  border-radius: 6px;
+  background: rgb(218 229 229 / 0.9);
+  box-shadow: inset 0 0 0 1px rgb(255 250 240 / 0.45);
+}
+
+.outfit-legend-background,
+.outfit-legend-character {
+  display: block;
+  pointer-events: none;
+  user-select: none;
+}
+
+.outfit-legend-background {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.outfit-legend-character {
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  width: auto;
+  height: 78px;
+  transform: translateX(-50%);
+  object-fit: contain;
+  object-position: center bottom;
+}
+
+.outfit-legend-text {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.outfit-legend-label {
+  color: var(--ink);
+  font-weight: 820;
+  line-height: 1.2;
+}
+
+.outfit-legend-description {
   color: var(--muted);
   font-size: 0.82rem;
   line-height: 1.3;
@@ -2145,7 +2284,7 @@ input[type="range"]::-moz-range-thumb {
 
   .outfit-mode-toggle {
     right: 8px;
-    bottom: 145px;
+    bottom: 95px;
     width: 40px;
     height: 40px;
   }

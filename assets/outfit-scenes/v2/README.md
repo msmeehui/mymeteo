@@ -13,7 +13,7 @@ Keep production outfit scenes split into:
 
 ## States
 
-The v2 set currently includes the full current fourteen-state outfit set:
+The v2 set currently includes the full current seventeen-state outfit set:
 
 | State | Background | Character |
 | --- | --- | --- |
@@ -26,8 +26,11 @@ The v2 set currently includes the full current fourteen-state outfit set:
 | `fog` | `backgrounds/fog.webp` | `characters/fog.webp` |
 | `windy` | `backgrounds/windy.webp` | `characters/windy.webp` |
 | `drizzle` | `backgrounds/drizzle.webp` | `characters/drizzle.webp` |
+| `warm-drizzle` | `backgrounds/drizzle.webp` | `characters/warm-drizzle.webp` |
 | `rain` | `backgrounds/rain.webp` | `characters/rain.webp` |
+| `warm-rain` | `backgrounds/rain.webp` | `characters/warm-rain.webp` |
 | `heavy-rain` | `backgrounds/heavy-rain.webp` | `characters/heavy-rain.webp` |
+| `warm-heavy-rain` | `backgrounds/heavy-rain.webp` | `characters/warm-heavy-rain.webp` |
 | `thunderstorm` | `backgrounds/thunderstorm.webp` | `characters/thunderstorm.webp` |
 | `snow` | `backgrounds/snow.webp` | `characters/snow.webp` |
 | `heavy-snow` | `backgrounds/heavy-snow.webp` | `characters/heavy-snow.webp` |
@@ -55,10 +58,14 @@ locally using border auto-key sampling, soft matte, and despill.
 The app-facing character layers were converted from transparent PNG to WebP with
 alpha using `cwebp -q 86 -alpha_q 95`.
 
-For the `drizzle`, `rain`, and `freezing-dry` character layers, a stricter hard
-key pass was used instead of soft matte/despill because the softer pass clipped
-warm skin tones. This preserves the character better at the cost of a very thin
-magenta edge in close inspection.
+Warm rain variants reuse the existing drizzle/rain/heavy-rain background layers
+and add separate warm-weather character layers so tropical rain does not suggest
+heavy cool-weather rain gear.
+
+For the first `drizzle`, `rain`, and `freezing-dry` character layers, a stricter
+hard key pass was used instead of soft matte/despill because the softer pass
+clipped warm skin tones. This preserves the character better at the cost of a
+very thin magenta edge in close inspection.
 
 ## Current Caveats
 

@@ -69,7 +69,7 @@ This origin still matters. New features should earn their place by helping users
 
 The user repeatedly favored a simple, usable interface over visible explanations and extra controls. When users might need more information, prefer hidden or secondary locations such as About sections, tooltips, titles, and ARIA labels. Do not solve every ambiguity by adding text to the main screen.
 
-The About modal is the right home for supporting context: creator info, icon legend, data sources, shortcut instructions, changelog, and background notes. Early footer text was moved into About because it made the main weather view busier without helping the primary task.
+The About modal is the right home for supporting context: creator info, a combined Legend section, data sources, shortcut instructions, changelog, and background notes. The Legend section can group icon and outfit explanations behind compact tabs so the modal does not grow too many separate accordion sections. Outfit Legend previews should use compact weather-scene previews that reuse the same layered background and character assets as outfit mode, so the legend matches what users see in Today. Early footer text was moved into About because it made the main weather view busier without helping the primary task.
 
 ### Make Today The Weather-First View
 
@@ -81,7 +81,7 @@ The leftmost slider position should show `Now` rather than an exact technical ra
 
 The radar should not autoplay. It should load at the beginning and stay there until the user intentionally drags the slider.
 
-The Today view can also offer a compact outfit mode. A small clothing/map toggle in the radar area switches between the rain radar and an illustrated outfit recommendation for the selected time. The weather card remains visible and should continue to update with the slider. Outfit changes should be stable and meaningful, using priority rules so rain, snow, storm, fog, and strong wind override dry temperature bands. The app renders the layered v2 asset set in `assets/outfit-scenes/v2/`, with wide weather WebP backgrounds and transparent WebP character/outfit foreground layers so the outfit view can fill different radar-area aspect ratios more naturally while keeping downloads light. The v2 set covers the full current fourteen-state outfit set from hot sunny through heavy snow. Older experiments, generated sources, PNG reference layers, preview pages, and reference-character photos belong in the ignored `private/` archive rather than the public app asset path. Outfit assets are loaded on demand when outfit mode opens; remaining scenes preload progressively during idle time and are skipped for Save-Data or very slow connections. The hidden `?outfitState=<state-id>` query parameter can force a valid outfit scene for QA without adding visible UI.
+The Today view can also offer a compact outfit mode. A small clothing/map toggle in the radar area switches between the rain radar and an illustrated outfit recommendation for the selected time. The weather card remains visible and should continue to update with the slider. Outfit changes should be stable and meaningful, using priority rules so rain, snow, storm, fog, and strong wind override dry temperature bands. Warm rain at tropical temperatures should branch to breathable warm-wet variants instead of cool-weather rain jackets and long trousers. The app renders the layered v2 asset set in `assets/outfit-scenes/v2/`, with wide weather WebP backgrounds and transparent WebP character/outfit foreground layers so the outfit view can fill different radar-area aspect ratios more naturally while keeping downloads light. The v2 set covers the full current seventeen-state outfit set from hot sunny through heavy snow, including warm drizzle/rain/heavy-rain variants. Older experiments, generated sources, PNG reference layers, preview pages, and reference-character photos belong in the ignored `private/` archive rather than the public app asset path. Outfit assets are loaded on demand when outfit mode opens; remaining scenes preload progressively during idle time and are skipped for Save-Data or very slow connections. The hidden `?outfitState=<state-id>` query parameter can force a valid outfit scene for QA without adding visible UI.
 
 ### Show Useful Data As Soon As It Exists
 
@@ -137,7 +137,7 @@ The 5-day forecast starts with today, not tomorrow. It uses summary rows for qui
 
 Hourly rows should be compact, aligned, and readable on narrow mobile widths. The layout should handle short values like `0%` and longer labels like `moderate` without columns touching or creating awkward gaps.
 
-Users may not know what every weather icon means. The chosen solution is an `Icon Legend` in the About modal, not visible labels beside every icon. The intro text is `Weather icons used in MyMeteo.`
+Users may not know what every weather icon means. The chosen solution is the `Icons` tab in the About modal's `Legend` section, not visible labels beside every icon. The intro text is `Weather icons used in MyMeteo.`
 
 ### Location UX Should Avoid Surprise
 

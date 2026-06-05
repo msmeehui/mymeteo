@@ -231,6 +231,11 @@ const cases = [
     expected: "heavy-rain",
   },
   {
+    name: "warm weather-code heavy rain uses warm heavy rain outfit",
+    snapshot: weatherSnapshot({ temperature: 27, weatherCode: 65 }),
+    expected: "warm-heavy-rain",
+  },
+  {
     name: "freezing rain uses heavy-rain protection",
     snapshot: weatherSnapshot({ temperature: -1, weatherCode: 56 }),
     expected: "heavy-rain",
@@ -241,9 +246,19 @@ const cases = [
     expected: "rain",
   },
   {
+    name: "warm weather-code rain uses warm rain outfit",
+    snapshot: weatherSnapshot({ temperature: 27, weatherCode: 61 }),
+    expected: "warm-rain",
+  },
+  {
     name: "weather-code drizzle",
     snapshot: weatherSnapshot({ temperature: 18, weatherCode: 51 }),
     expected: "drizzle",
+  },
+  {
+    name: "warm heavy drizzle uses warm drizzle outfit",
+    snapshot: weatherSnapshot({ temperature: 27, weatherCode: 55 }),
+    expected: "warm-drizzle",
   },
   {
     name: "fog overrides temperature",
@@ -267,16 +282,34 @@ const cases = [
     expected: "heavy-rain",
   },
   {
+    name: "warm heavy rain by precipitation chance and intensity",
+    snapshot: weatherSnapshot({ temperature: 27 }),
+    precipitation: precipitation({ chance: 50, intensity: "heavy" }),
+    expected: "warm-heavy-rain",
+  },
+  {
     name: "rain by precipitation chance",
     snapshot: weatherSnapshot({ temperature: 18 }),
     precipitation: precipitation({ chance: 50, intensity: "moderate" }),
     expected: "rain",
   },
   {
+    name: "warm rain by precipitation chance",
+    snapshot: weatherSnapshot({ temperature: 27 }),
+    precipitation: precipitation({ chance: 50, intensity: "moderate" }),
+    expected: "warm-rain",
+  },
+  {
     name: "drizzle by light precipitation chance",
     snapshot: weatherSnapshot({ temperature: 18 }),
     precipitation: precipitation({ chance: 30, intensity: "light" }),
     expected: "drizzle",
+  },
+  {
+    name: "warm drizzle by light precipitation chance",
+    snapshot: weatherSnapshot({ temperature: 27 }),
+    precipitation: precipitation({ chance: 30, intensity: "light" }),
+    expected: "warm-drizzle",
   },
   {
     name: "heavy snow by precipitation chance and intensity",
@@ -334,6 +367,20 @@ const cases = [
     snapshot: weatherSnapshot({ temperature: 18 }),
     precipitation: precipitation({ chance: 40, intensity: "heavy" }),
     expected: "heavy-rain",
+  },
+  {
+    name: "warm rain stays warm at leave temperature",
+    previousSceneId: "warm-rain",
+    snapshot: weatherSnapshot({ temperature: 22 }),
+    precipitation: precipitation({ chance: 40, intensity: "moderate" }),
+    expected: "warm-rain",
+  },
+  {
+    name: "warm rain leaves below leave temperature",
+    previousSceneId: "warm-rain",
+    snapshot: weatherSnapshot({ temperature: 21 }),
+    precipitation: precipitation({ chance: 40, intensity: "moderate" }),
+    expected: "rain",
   },
   {
     name: "heavy snow stays heavy at leave threshold",
