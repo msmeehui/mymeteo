@@ -71,6 +71,61 @@ const context = await browser.newContext({
   viewport: null,
 });
 
+async function keepPreviewTitle(page, previewName) {
+  await page.addInitScript((name) => {
+    const prefix = `${name} - `;
+    const fallbackTitle = "MyMeteo";
+    let latestBaseTitle = fallbackTitle;
+    let isApplyingTitle = false;
+
+    function getBaseTitle(currentTitle) {
+      if (!currentTitle) {
+        return latestBaseTitle;
+      }
+
+      if (currentTitle.startsWith(prefix)) {
+        return currentTitle.slice(prefix.length) || latestBaseTitle;
+      }
+
+      return currentTitle;
+    }
+
+    function applyPreviewTitle() {
+      if (isApplyingTitle) {
+        return;
+      }
+
+      const baseTitle = getBaseTitle(document.title) || fallbackTitle;
+      latestBaseTitle = baseTitle;
+      const desiredTitle = `${prefix}${baseTitle}`;
+
+      if (document.title !== desiredTitle) {
+        isApplyingTitle = true;
+        document.title = desiredTitle;
+        isApplyingTitle = false;
+      }
+    }
+
+    function observeTitleChanges() {
+      const title = document.querySelector("title");
+
+      if (title) {
+        new MutationObserver(applyPreviewTitle).observe(title, {
+          childList: true,
+        });
+      }
+    }
+
+    applyPreviewTitle();
+    observeTitleChanges();
+    window.addEventListener("DOMContentLoaded", () => {
+      applyPreviewTitle();
+      observeTitleChanges();
+    });
+    window.addEventListener("load", applyPreviewTitle);
+  }, previewName);
+}
+
 const firstPage = await context.newPage();
 const cdpSession = await context.newCDPSession(firstPage);
 const { windowId } = await cdpSession.send("Browser.getWindowForTarget");
@@ -93,6 +148,7 @@ const pageArea = await firstPage.evaluate(() => ({
 
 for (const [index, viewport] of viewports.entries()) {
   const page = index === 0 ? firstPage : await context.newPage();
+  await keepPreviewTitle(page, viewport.name);
   await page.setViewportSize({
     width: viewport.width,
     height: viewport.height,
@@ -100,7 +156,11 @@ for (const [index, viewport] of viewports.entries()) {
   await page.goto(appUrl);
   await page.evaluate(
     (name) => {
-      document.title = `${name} - ${document.title}`;
+      const prefix = `${name} - `;
+
+      if (!document.title.startsWith(prefix)) {
+        document.title = `${prefix}${document.title}`;
+      }
     },
     viewport.name,
   );
