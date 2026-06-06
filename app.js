@@ -2021,6 +2021,8 @@ function getOutfitSceneId(snapshot = {}, precipitation, weatherCode = snapshot.w
   const type = precipitation?.type === "snow" ? "snow" : "rain";
   const isSnow = type === "snow";
   const isRain = type === "rain";
+  const hasRainCode = isRainOutfitWeatherCode(code);
+  const hasSnowCode = isSnowOutfitWeatherCode(code);
   const isWarmWet = isWarmWetOutfitTemperature(snapshot.temperature, activeOutfitSceneId);
   const heavyPrecipitationThreshold = isHeavyOutfitScene(activeOutfitSceneId)
     ? outfitPrecipitationLeaveChance
@@ -2038,18 +2040,31 @@ function getOutfitSceneId(snapshot = {}, precipitation, weatherCode = snapshot.w
 
   if (
     outfitHeavySnowCodes.has(code)
-    || (isSnow && precipitation?.intensity === "heavy" && isChanceAtLeast(chance, heavyPrecipitationThreshold))
+    || (
+      hasSnowCode
+      && isSnow
+      && precipitation?.intensity === "heavy"
+      && isChanceAtLeast(chance, heavyPrecipitationThreshold)
+    )
   ) {
     return "heavy-snow";
   }
 
-  if (outfitSnowCodes.has(code) || (isSnow && isChanceAtLeast(chance, lightPrecipitationThreshold))) {
+  if (
+    outfitSnowCodes.has(code)
+    || (hasSnowCode && isSnow && isChanceAtLeast(chance, lightPrecipitationThreshold))
+  ) {
     return "snow";
   }
 
   if (
     outfitHeavyRainCodes.has(code)
-    || (isRain && precipitation?.intensity === "heavy" && isChanceAtLeast(chance, heavyPrecipitationThreshold))
+    || (
+      hasRainCode
+      && isRain
+      && precipitation?.intensity === "heavy"
+      && isChanceAtLeast(chance, heavyPrecipitationThreshold)
+    )
   ) {
     return isWarmWet ? "warm-heavy-rain" : "heavy-rain";
   }
@@ -2058,13 +2073,21 @@ function getOutfitSceneId(snapshot = {}, precipitation, weatherCode = snapshot.w
     return "heavy-rain";
   }
 
-  if (outfitRainCodes.has(code) || (isRain && isChanceAtLeast(chance, precipitationThreshold))) {
+  if (
+    outfitRainCodes.has(code)
+    || (hasRainCode && isRain && isChanceAtLeast(chance, precipitationThreshold))
+  ) {
     return isWarmWet ? "warm-rain" : "rain";
   }
 
   if (
     outfitDrizzleCodes.has(code)
-    || (isRain && precipitation?.intensity !== "heavy" && isChanceAtLeast(chance, lightPrecipitationThreshold))
+    || (
+      hasRainCode
+      && isRain
+      && precipitation?.intensity !== "heavy"
+      && isChanceAtLeast(chance, lightPrecipitationThreshold)
+    )
   ) {
     return isWarmWet ? "warm-drizzle" : "drizzle";
   }
@@ -2113,6 +2136,17 @@ function isWarmWetOutfitTemperature(temperature, previousSceneId) {
 
 function isChanceAtLeast(chance, threshold) {
   return Number.isFinite(chance) && chance >= threshold;
+}
+
+function isRainOutfitWeatherCode(code) {
+  return outfitHeavyRainCodes.has(code)
+    || outfitFreezingRainCodes.has(code)
+    || outfitRainCodes.has(code)
+    || outfitDrizzleCodes.has(code);
+}
+
+function isSnowOutfitWeatherCode(code) {
+  return outfitHeavySnowCodes.has(code) || outfitSnowCodes.has(code);
 }
 
 function isPrecipitationOutfitScene(sceneId) {
