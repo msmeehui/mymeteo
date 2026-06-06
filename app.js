@@ -1775,10 +1775,12 @@ function renderCurrentTemperatureRange(temperatureRange) {
 function renderCurrentPrecipitation(precipitation) {
   const scopeLabel = precipitation.scopeLabel || "Remaining today";
   elements.currentPrecipLabel.textContent = precipitation.label;
-  elements.rainTotal.textContent = precipitation.value;
+  elements.currentPrecipitationValue.classList.toggle("is-dry", isPrecipitationDisplayDry(precipitation));
   elements.rainTotal.title = precipitation.ariaLabel;
   elements.currentPrecipMetric.setAttribute("aria-label", `${scopeLabel} ${precipitation.ariaLabel.toLowerCase()}`);
-  renderCurrentPrecipitationIcon(precipitation);
+  elements.currentPrecipitationValue.replaceChildren(
+    ...createPrecipitationDisplayParts(precipitation, "current", elements.rainTotal),
+  );
 }
 
 function renderSelectedWeather(date = getSelectedWeatherDate()) {
@@ -2634,79 +2636,71 @@ function createForecastTemperatureCell(day) {
 function createPrecipitationCell(precipitation) {
   const cell = document.createElement("td");
   const value = document.createElement("span");
-  const amount = document.createElement("span");
 
   cell.className = "forecast-rain-cell";
   cell.title = precipitation.ariaLabel;
   cell.setAttribute("aria-label", precipitation.ariaLabel);
   value.className = "forecast-precipitation-value";
+  value.classList.toggle("is-dry", isPrecipitationDisplayDry(precipitation));
   value.setAttribute("aria-hidden", "true");
-  amount.textContent = precipitation.value;
-  value.append(createPrecipitationIcon(precipitation), amount);
+  value.append(...createPrecipitationDisplayParts(precipitation, "forecast"));
   cell.appendChild(value);
 
   return cell;
 }
 
-function renderCurrentPrecipitationIcon(precipitation) {
-  const icon = createPrecipitationIcon(precipitation, "current-precipitation-icon");
-  const existingIcon = elements.currentPrecipitationValue.querySelector("svg");
+function createPrecipitationDisplayParts(precipitation, context = "forecast", amountElement) {
+  const amount = amountElement || document.createElement("span");
+  amount.classList.add("precipitation-display-text");
+  amount.textContent = getPrecipitationDisplayValue(precipitation);
 
-  if (existingIcon) {
-    existingIcon.replaceWith(icon);
-    return;
+  if (shouldShowPrecipitationIntensityMeter(precipitation)) {
+    return [createPrecipitationIntensityMeter(precipitation, context), amount];
   }
 
-  elements.currentPrecipitationValue.prepend(icon);
+  return [amount];
 }
 
-function createPrecipitationIcon(precipitation, className = "forecast-precipitation-icon") {
-  return precipitation.type === "snow" ? createSnowIcon(className) : createDropletIcon(className);
+function createPrecipitationIntensityMeter(precipitation, context = "forecast") {
+  const meter = document.createElement("span");
+  const rank = getPrecipitationIntensityRank(precipitation.intensity);
+  const type = precipitation.type === "snow" ? "snow" : "rain";
+
+  meter.className = `precipitation-intensity-meter precipitation-intensity-meter--${context} precipitation-intensity-meter--${type}`;
+  meter.title = `${capitalizeWord(precipitation.intensity)} ${type} intensity`;
+  meter.setAttribute("aria-hidden", "true");
+
+  for (let index = 1; index <= 3; index += 1) {
+    const segment = document.createElement("span");
+
+    segment.className = "precipitation-intensity-segment";
+    segment.classList.toggle("is-active", index <= rank);
+    meter.appendChild(segment);
+  }
+
+  return meter;
 }
 
-function createDropletIcon(className = "forecast-precipitation-icon") {
-  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-
-  icon.classList.add(className);
-  icon.setAttribute("viewBox", "0 0 12 22");
-  icon.setAttribute("fill", "#238fc7");
-  icon.setAttribute("aria-hidden", "true");
-  path.setAttribute(
-    "d",
-    "M6 1.7C3.9 4.6 2.2 7.4 1.5 10.6c-.4 1.4-.5 3-.5 4.5 0 3.1 2.25 5.3 5 5.3s5-2.2 5-5.3c0-1.5-.1-3.1-.5-4.5C9.8 7.4 8.1 4.6 6 1.7Z",
-  );
-  icon.appendChild(path);
-
-  return icon;
+function shouldShowPrecipitationIntensityMeter(precipitation) {
+  return !isPrecipitationDisplayDry(precipitation) && getPrecipitationIntensityRank(precipitation?.intensity) > 0;
 }
 
-function createSnowIcon(className = "forecast-precipitation-icon") {
-  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  const paths = [
-    "M8 2.4v11.2",
-    "M3.2 5.2l9.6 5.6",
-    "M12.8 5.2l-9.6 5.6",
-    "M5.7 3.8 8 5.2l2.3-1.4",
-    "M5.7 12.2 8 10.8l2.3 1.4",
-  ];
+function getPrecipitationDisplayValue(precipitation) {
+  return isPrecipitationDisplayDry(precipitation) ? "Dry" : precipitation?.value || "--%";
+}
 
-  icon.classList.add(className, "precipitation-icon--snow");
-  icon.setAttribute("viewBox", "0 0 16 16");
-  icon.setAttribute("fill", "none");
-  icon.setAttribute("stroke", "#238fc7");
-  icon.setAttribute("stroke-width", "1.8");
-  icon.setAttribute("stroke-linecap", "round");
-  icon.setAttribute("stroke-linejoin", "round");
-  icon.setAttribute("aria-hidden", "true");
+function isPrecipitationDisplayDry(precipitation) {
+  if (!Number.isFinite(precipitation?.chance)) {
+    return false;
+  }
 
-  paths.forEach((d) => {
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("d", d);
-    icon.appendChild(path);
-  });
+  return roundRainChanceForDisplay(precipitation.chance) <= 0;
+}
 
-  return icon;
+function capitalizeWord(value) {
+  return typeof value === "string" && value.length
+    ? value.charAt(0).toUpperCase() + value.slice(1)
+    : "";
 }
 
 function createIconCell(condition) {
@@ -2899,24 +2893,15 @@ function createHourlyTextCell(text, className, role = "cell") {
 function createHourlyPrecipitationCell(precipitation) {
   const cell = document.createElement("span");
   const value = document.createElement("span");
-  const amount = document.createElement("span");
 
   cell.className = "hourly-rain";
   cell.setAttribute("role", "cell");
   cell.setAttribute("aria-label", precipitation.ariaLabel);
   cell.title = precipitation.ariaLabel;
   value.className = "hourly-precipitation-value";
+  value.classList.toggle("is-dry", isPrecipitationDisplayDry(precipitation));
   value.setAttribute("aria-hidden", "true");
-  amount.textContent = precipitation.value;
-  value.append(createPrecipitationIcon(precipitation, "hourly-precipitation-icon"), amount);
-
-  if (precipitation.intensity) {
-    const intensity = document.createElement("span");
-
-    intensity.className = "hourly-precipitation-intensity";
-    intensity.textContent = precipitation.intensity;
-    value.appendChild(intensity);
-  }
+  value.append(...createPrecipitationDisplayParts(precipitation, "hourly"));
 
   cell.appendChild(value);
 
@@ -4957,6 +4942,7 @@ function withHourlyPrecipitationChance(precipitation, hourlyPrecipitations) {
 
   return withPrecipitationChance({
     ...precipitation,
+    intensity: hourlyPrecipitation.intensity || precipitation.intensity,
     isRadarAdjusted: hourlyPrecipitation.isRadarAdjusted,
     radarAdjustment: hourlyPrecipitation.radarAdjustment,
   }, hourlyPrecipitation.chance);
@@ -4964,10 +4950,12 @@ function withHourlyPrecipitationChance(precipitation, hourlyPrecipitations) {
 
 function withPrecipitationChance(precipitation, chance) {
   const value = formatOptionalRainChance(chance);
+  const displayChance = Number.isFinite(chance) ? roundRainChanceForDisplay(chance) : undefined;
   const nextPrecipitation = {
     ...precipitation,
     value,
     chance,
+    intensity: getPrecipitationDisplayIntensity(precipitation, displayChance),
   };
 
   nextPrecipitation.ariaLabel = getPrecipitationAriaLabel(nextPrecipitation);
@@ -5051,7 +5039,8 @@ function getMaxPrecipitation(precipitations) {
 
 function getPrecipitationAriaLabel(precipitation) {
   const sourceLabel = precipitation.isRadarAdjusted ? ", adjusted with radar" : "";
-  return `${precipitation.label} chance ${precipitation.value}${precipitation.intensity ? `, ${precipitation.intensity}` : ""}${sourceLabel}`;
+  const dryLabel = isPrecipitationDisplayDry(precipitation) ? ", dry" : "";
+  return `${precipitation.label} chance ${precipitation.value}${dryLabel}${precipitation.intensity ? `, ${precipitation.intensity}` : ""}${sourceLabel}`;
 }
 
 function recordRainDebugPrecipitation(forecastTime, modelPrecipitation, finalPrecipitation) {
@@ -5153,7 +5142,11 @@ function withBuienradarPrecipitationAdjustment(precipitation, forecastTime, { in
     ? getPrecipitationIntensity(precipitation.type, modelAmount, modelDisplayChance)
     : precipitation.intensity;
   const intensity = includeIntensity
-    ? getBlendedPrecipitationIntensity(modelIntensity, radarIntensity, adjustment.weight, displayChance)
+    ? getPrecipitationDisplayIntensity({
+        ...precipitation,
+        amount,
+        intensity: getBlendedPrecipitationIntensity(modelIntensity, radarIntensity, adjustment.weight, displayChance),
+      }, displayChance)
     : precipitation.intensity;
   const isRadarAdjusted = modelDisplayChance !== displayChance
     || intensity !== precipitation.intensity;
@@ -5304,6 +5297,18 @@ function getBuienradarPrecipitationIntensity(signal) {
 
 function getPrecipitationLabel(type) {
   return type === "snow" ? "Snow" : "Rain";
+}
+
+function getPrecipitationDisplayIntensity(precipitation, displayChance) {
+  if (
+    !Number.isFinite(displayChance)
+    || displayChance < precipitationIntensityChanceThreshold
+  ) {
+    return undefined;
+  }
+
+  return precipitation.intensity
+    || getPrecipitationIntensity(precipitation.type, precipitation.amount, displayChance);
 }
 
 function getPrecipitationIntensity(type, amount, displayChance) {

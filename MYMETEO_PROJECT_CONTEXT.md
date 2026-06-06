@@ -1,6 +1,6 @@
 # MyMeteo Project Context
 
-Last updated: 2026-06-05
+Last updated: 2026-06-06
 
 This file is the shared product memory for MyMeteo. Read it before discussing or changing the app in a new Codex chat. It summarizes the decisions, trade-offs, and design philosophy that emerged from the MyMeteo development chats, the app changelog, the README, git history, and the current implementation.
 
@@ -129,6 +129,8 @@ The About/Data Sources section and README mention that near-term rain chance in 
 The app moved from compact rain amounts in millimeters toward rain chance percentages, because that better matches the user's quick decision need. Displayed rain chances are rounded to the nearest 5% to avoid false precision.
 
 Intensity words such as light, moderate, and heavy are useful, but should remain compact. They help users understand that a high probability of tiny rain is different from a high probability of heavy rain.
+
+The compact UI should use "rain chance" as the user-facing term. When the displayed rain chance rounds to 0%, show `Dry` instead of `0%` plus extra decoration. When rain chance is above 0%, show the rounded percentage next to a small three-step intensity meter: one segment for light, two for moderate, three for heavy. The same rain display language should be reused in the Today weather card, 5-day summaries, and expanded hourly rows. Keep the light/moderate/heavy words available in titles, ARIA labels, or About text rather than repeating them in compact forecast cells.
 
 Avoid unnecessary decimals. Early rain amounts were rounded to whole millimeters because `10 mm` is more readable than `10.1 mm` in a compact weather UI. The same taste applies elsewhere: avoid false precision unless the precision helps a real decision.
 

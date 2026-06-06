@@ -213,14 +213,6 @@
                     <dt class="visually-hidden">Rain</dt>
                     <dd class="current-rain-value">
                       <span class="current-precipitation-value">
-                        <svg
-                          class="current-precipitation-icon"
-                          viewBox="0 0 12 22"
-                          fill="#238fc7"
-                          aria-hidden="true"
-                        >
-                          <path d="M6 1.7C3.9 4.6 2.2 7.4 1.5 10.6c-.4 1.4-.5 3-.5 4.5 0 3.1 2.25 5.3 5 5.3s5-2.2 5-5.3c0-1.5-.1-3.1-.5-4.5C9.8 7.4 8.1 4.6 6 1.7Z"></path>
-                        </svg>
                         <span id="rainTotal">--%</span>
                       </span>
                     </dd>
@@ -389,7 +381,7 @@
                 </div>
                 <div>
                   <dt>Near-term rain chance:</dt>
-                  <dd>Open-Meteo adjusted with Buienradar point rain data in the Netherlands for the first 2 hours, then radar data toward the 8-hour limit.</dd>
+                  <dd>Open-Meteo adjusted with Buienradar point rain data in the Netherlands for the first 2 hours, then radar data toward the 8-hour limit. Rain intensity is shown separately with a small three-step meter.</dd>
                 </div>
                 <div>
                   <dt>Radar frame decoding:</dt>
@@ -451,6 +443,7 @@
             <div class="info-section-body changelog">
               <h3>6 June 2026</h3>
               <ul>
+                <li>Simplified rain displays with Dry labels for 0% rain chance and compact intensity meters for light, moderate, and heavy rain.</li>
                 <li>Improved near-term rain forecasts in the Netherlands by matching them more closely to local Buienradar rain data.</li>
               </ul>
 
