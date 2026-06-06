@@ -44,7 +44,7 @@ Primary data sources:
 - Open-Meteo Forecast API for forecast data
 - Open-Meteo Geocoding API for location autocomplete
 - OpenStreetMap Nominatim for current-location names
-- Buienradar for Netherlands rain radar animation
+- Buienradar for Netherlands point rain nowcast data and rain radar animation
 - LibreWXR as fallback/outside-Netherlands radar tiles
 - OpenStreetMap/Leaflet for maps
 
@@ -108,16 +108,21 @@ Open-Meteo and Buienradar can disagree. Users may see clear radar over Amsterdam
 
 The chosen direction is not to add lots of visible warnings. Instead, MyMeteo should make the displayed near-term rain chance more coherent:
 
-- For the Netherlands, sample Buienradar frames around the selected location.
-- Convert the sampled radar signal into dry/light/moderate/heavy-like rain information.
-- Blend that into Open-Meteo hourly rain chance for the first 8 hours.
+- For the Netherlands, use Buienradar coordinate rain data as the primary point signal for the first 2 hours.
+- For the later near-term window, sample Buienradar frames around the selected location.
+- Convert the point/radar signal into dry/light/moderate/heavy-like rain information.
+- Blend that into Open-Meteo hourly rain chance and intensity for the first 8 hours.
+- Let the blend work in both directions: radar can increase rain risk when rain is present, but can also lower probability, intensity, and rain icons when the local radar signal is dry or lighter.
+- Keep radar chance and intensity separate: chance should follow coverage/timing, while intensity should follow the local Buienradar color class so broad light rain does not become heavy rain.
+- Use representative hourly rain signal rather than the single strongest frame, while the Today/Now card should use the nearest point/radar sample.
+- For Buienradar point rain data, keep the current hour near-now focused, but let future hourly rows use the upcoming hour so short showers are not lost between labels.
 - Let radar influence be strongest for the first 3 hours, then fade toward the 8-hour limit.
 - After 8 hours, Open-Meteo is leading because there is no longer radar coverage.
 - Do not alter the radar animation based on Open-Meteo. The map should remain honest radar data.
 
-The current implementation uses blend constants in `app.js` around `buienradarBlendMaxLookaheadHours`, `buienradarBlendFullWeightHours`, and related sampling settings. These can be tuned if live use shows overcorrection or undercorrection.
+The current implementation uses blend constants in `app.js` around `buienradarPointRainMaxLookaheadHours`, `buienradarBlendMaxLookaheadHours`, `buienradarBlendFullWeightHours`, and related sampling settings. These can be tuned if live use shows overcorrection or undercorrection.
 
-The About/Data Sources section and README mention that near-term rain chance in the Netherlands is Open-Meteo adjusted with Buienradar for the first 8 hours.
+The About/Data Sources section and README mention that near-term rain chance in the Netherlands is Open-Meteo adjusted with Buienradar point rain data for the first 2 hours, then radar data toward the 8-hour limit.
 
 ### Rain Chance Should Be Easy To Scan
 
@@ -157,7 +162,7 @@ The radar source changed several times because the desired interaction was speci
 
 Early RainViewer use was limited because future nowcast support was no longer available. Synthetic Open-Meteo forecast circles were rejected because they did not look like actual moving radar spots. LibreWXR gave real tile movement but only about one hour of future coverage. Buienradar became the Netherlands source because it provided a smoother seekable radar animation and about three hours of public no-key forecast frames.
 
-For locations in the Netherlands, Buienradar is the primary rain radar source. The app supports a 3-hour and 8-hour Buienradar view, with preloading so switching modes feels fast. Earlier investigation found the public no-key Buienradar endpoint capped at about 36 five-minute frames for the simple 3-hour setup; longer horizons generally require either model forecasts, different providers, or later source changes.
+For locations in the Netherlands, Buienradar is the primary near-term rain source. The coordinate rain feed is preferred for point rain correction in the first 2 hours because it is less fragile than reading a visual radar image pixel at a lat/lon. The radar animation remains the visible map source, and the app supports a 3-hour and 8-hour Buienradar view with preloading so switching modes feels fast. Earlier investigation found the public no-key Buienradar animation endpoint capped at about 36 five-minute frames for the simple 3-hour setup; longer horizons generally require either model forecasts, different providers, or later source changes.
 
 For locations outside the Netherlands or when Buienradar is unavailable, LibreWXR/fallback radar tiles are used. The outside-Netherlands one-hour radar animation was smoothed to feel less jumpy.
 

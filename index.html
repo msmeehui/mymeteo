@@ -26,6 +26,7 @@
     <link rel="preconnect" href="https://api.librewxr.net" />
     <link rel="preconnect" href="https://image.buienradar.nl" />
     <link rel="preconnect" href="https://image-cdn.buienradar.nl" />
+    <link rel="preconnect" href="https://gps.buienradar.nl" />
     <link
       rel="stylesheet"
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -388,7 +389,7 @@
                 </div>
                 <div>
                   <dt>Near-term rain chance:</dt>
-                  <dd>Open-Meteo adjusted with Buienradar in the Netherlands for the first 8 hours.</dd>
+                  <dd>Open-Meteo adjusted with Buienradar point rain data in the Netherlands for the first 2 hours, then radar data toward the 8-hour limit.</dd>
                 </div>
                 <div>
                   <dt>Radar frame decoding:</dt>
@@ -448,6 +449,12 @@
               <span class="info-section-chevron" aria-hidden="true"></span>
             </summary>
             <div class="info-section-body changelog">
+              <h3>6 June 2026</h3>
+              <ul>
+                <li>Use Buienradar coordinate rain data as the primary Netherlands point signal for the first 2 hours.</li>
+                <li>Refined Netherlands near-term rain adjustment so radar chance follows coverage while intensity follows the local Buienradar color class.</li>
+              </ul>
+
               <h3>5 June 2026</h3>
               <ul>
                 <li>Added an outfit mode in the Today view, with illustrated clothing suggestions.</li>
@@ -527,6 +534,6 @@
       crossorigin=""
     ></script>
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-    <script src="app.js?v=20260605-12"></script>
+    <script src="app.js?v=20260606-03"></script>
   </body>
 </html>
