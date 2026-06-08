@@ -15,6 +15,12 @@ const weatherIconBasePath = "assets/weather-icons-mymeteo/";
 const outfitSceneBackgroundBasePath = "assets/outfit-scenes/v2/backgrounds/";
 const outfitSceneCharacterBasePath = "assets/outfit-scenes/v2/characters/";
 const outfitSceneAssetVersion = "20260608-01";
+// Replace these files and bump this version when updating the Easter egg video.
+const easterEggAssetVersion = "20260608-02";
+const easterEggShuffleVideo = {
+  src: "assets/easter-eggs/marc-shuffle-dance.mp4",
+  poster: "assets/easter-eggs/marc-shuffle-dance-poster.jpg",
+};
 const outfitSceneOverrideQueryParam = "outfitState";
 const rainDebugQueryParam = "debugRain";
 const isRainDebugEnabled = new URLSearchParams(window.location.search).get(rainDebugQueryParam) === "1";
@@ -64,7 +70,7 @@ const elements = {
   brandButton: document.querySelector("#brandButton"),
   refreshButton: document.querySelector("#refreshButton"),
   updatedAt: document.querySelector("#updatedAt"),
-  nowPanel: document.querySelector(".now-panel"),
+  nowPanel: document.querySelector("#radarWeatherCard"),
   currentTemp: document.querySelector("#currentTemp"),
   conditionLabel: document.querySelector("#conditionLabel"),
   temperatureRange: document.querySelector(".temperature-range"),
@@ -96,6 +102,9 @@ const elements = {
   outfitScene: document.querySelector("#outfitScene"),
   outfitSceneBackground: document.querySelector("#outfitSceneBackground"),
   outfitSceneCharacter: document.querySelector("#outfitSceneCharacter"),
+  easterEggScene: document.querySelector("#easterEggScene"),
+  easterEggVideo: document.querySelector("#easterEggVideo"),
+  easterEggFallback: document.querySelector("#easterEggFallback"),
   rainForecastBadge: document.querySelector("#rainForecastBadge"),
   sliderTimestamps: document.querySelector("#sliderTimestamps"),
 };
@@ -662,6 +671,8 @@ let outfitScenePreloadQueue = [];
 let outfitScenePreloadTimer;
 let outfitScenePreloadIdleHandle;
 const outfitScenePreloadImages = new Map();
+let isEasterEggActive = false;
+let easterEggVideoSrcLoaded = false;
 let shouldCenterMapWhenShown = false;
 let expandedForecastDayKey;
 let selectedLocation = loadStoredLocation() || DEFAULT_LOCATION;
@@ -741,6 +752,7 @@ function bindEvents() {
     loadAll();
   });
   elements.outfitModeToggle.addEventListener("click", toggleOutfitMode);
+  bindEasterEggEvents();
   elements.rainTab.addEventListener("click", () => {
     trackAnalyticsEvent("rain_tab");
     setMobileView("rain");
@@ -1185,6 +1197,9 @@ function syncForecastViewForViewport() {
   elements.forecastPanel.hidden = !showForecast;
   elements.radarPanel.hidden = !showRadar;
   elements.nowPanel.hidden = !showCurrentWeather;
+  if (!showRadar) {
+    hideEasterEgg();
+  }
   updateMobileTabs();
 
   if (window.lucide) {
@@ -1971,6 +1986,84 @@ function setOutfitMode(enabled) {
     cancelOutfitScenePreload();
     refreshMapSize();
   }
+}
+
+function bindEasterEggEvents() {
+  if (!elements.currentTemp || !elements.easterEggScene || !elements.easterEggVideo || !elements.easterEggFallback) {
+    return;
+  }
+
+  elements.currentTemp.addEventListener("click", handleEasterEggTemperatureClick);
+  elements.easterEggScene.addEventListener("click", hideEasterEgg);
+  elements.easterEggVideo.addEventListener("ended", hideEasterEgg);
+}
+
+function handleEasterEggTemperatureClick() {
+  if (isEasterEggActive) {
+    hideEasterEgg();
+  } else {
+    showEasterEgg();
+  }
+}
+
+function showEasterEgg() {
+  if (isEasterEggActive) {
+    return;
+  }
+
+  isEasterEggActive = true;
+  elements.radarPanel.classList.add("is-easter-egg-active");
+  elements.easterEggScene.hidden = false;
+  elements.easterEggVideo.poster = buildEasterEggAssetUrl(easterEggShuffleVideo.poster);
+  elements.easterEggFallback.src = buildEasterEggAssetUrl(easterEggShuffleVideo.poster);
+  elements.easterEggVideo.currentTime = 0;
+
+  if (shouldUseEasterEggFallback()) {
+    elements.easterEggVideo.hidden = true;
+    elements.easterEggFallback.hidden = false;
+    trackAnalyticsEvent("easter_egg_shuffle_fallback");
+    return;
+  }
+
+  elements.easterEggFallback.hidden = true;
+  elements.easterEggVideo.hidden = false;
+
+  if (!easterEggVideoSrcLoaded) {
+    elements.easterEggVideo.src = buildEasterEggAssetUrl(easterEggShuffleVideo.src);
+    easterEggVideoSrcLoaded = true;
+  }
+
+  const playPromise = elements.easterEggVideo.play();
+  if (playPromise?.catch) {
+    playPromise.catch(() => {
+      elements.easterEggVideo.hidden = true;
+      elements.easterEggFallback.hidden = false;
+    });
+  }
+  trackAnalyticsEvent("easter_egg_shuffle");
+}
+
+function hideEasterEgg() {
+  if (!elements.easterEggScene || !isEasterEggActive) {
+    return;
+  }
+
+  isEasterEggActive = false;
+  elements.radarPanel.classList.remove("is-easter-egg-active");
+  elements.easterEggVideo.pause();
+  elements.easterEggVideo.currentTime = 0;
+  elements.easterEggScene.hidden = true;
+}
+
+function buildEasterEggAssetUrl(path) {
+  return `${path}?v=${easterEggAssetVersion}`;
+}
+
+function shouldUseEasterEggFallback() {
+  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+
+  return Boolean(prefersReducedMotion || connection?.saveData || ["slow-2g", "2g"].includes(connection?.effectiveType));
 }
 
 function updateOutfitModeToggle() {

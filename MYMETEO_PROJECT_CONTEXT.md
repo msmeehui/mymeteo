@@ -1,6 +1,6 @@
 # MyMeteo Project Context
 
-Last updated: 2026-06-07
+Last updated: 2026-06-08
 
 This file is the shared product memory for MyMeteo. Read it before discussing or changing the app in a new Codex chat. It summarizes the decisions, trade-offs, and design philosophy that emerged from the MyMeteo development chats, the app changelog, the README, git history, and the current implementation.
 
@@ -86,6 +86,8 @@ The leftmost slider position should show `Now` rather than an exact technical ra
 The radar should not autoplay. It should load at the beginning and stay there until the user intentionally drags the slider.
 
 The Today view can also offer a compact outfit mode. A small clothing/map toggle in the radar area switches between the rain radar and an illustrated outfit recommendation for the selected time. The weather card remains visible and should continue to update with the slider. Outfit changes should be stable and meaningful, using priority rules so rain, snow, storm, fog, and strong wind override dry temperature bands. For the selected Today time, precipitation outfit scenes should stay in sync with the displayed weather icon: do not show umbrella/rain-jacket or snow outfits when the selected weather icon is dry, clear, cloudy, or overcast. Warm rain at tropical temperatures should branch to breathable warm-wet variants instead of cool-weather rain jackets and long trousers. The app renders the layered v2 asset set in `assets/outfit-scenes/v2/`, with wide weather WebP backgrounds and transparent WebP character/outfit foreground layers so the outfit view can fill different radar-area aspect ratios more naturally while keeping downloads light. The v2 set covers the full current seventeen-state outfit set from hot sunny through heavy snow, including warm drizzle/rain/heavy-rain variants. Older experiments, generated sources, PNG reference layers, preview pages, and reference-character photos belong in the ignored `private/` archive rather than the public app asset path. Outfit assets are loaded on demand when outfit mode opens; remaining scenes preload progressively during idle time and are skipped for Save-Data or very slow connections. The hidden `?outfitState=<state-id>` query parameter can force a valid outfit scene for QA without adding visible UI.
+
+The Today weather card also has a hidden Easter egg: clicking or tapping the large temperature in the radar weather card reveals an 8-second Marc shuffle-dance video in the radar area, and tapping the temperature or video dismisses it. The video should stay lazy-loaded, respect reduced-motion and data-saver settings by falling back to a poster, and keep the radar/map controls hidden while active. Production assets live in `assets/easter-eggs/`; when replacing the video, replace the MP4 and poster together and bump the Easter egg asset version in `app.js`.
 
 ### Show Useful Data As Soon As It Exists
 
