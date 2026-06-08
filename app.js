@@ -14,6 +14,7 @@ const gifDecoderModuleUrl = "https://esm.sh/gifuct-js@2.1.2?bundle";
 const weatherIconBasePath = "assets/weather-icons-mymeteo/";
 const outfitSceneBackgroundBasePath = "assets/outfit-scenes/v2/backgrounds/";
 const outfitSceneCharacterBasePath = "assets/outfit-scenes/v2/characters/";
+const outfitSceneAssetVersion = "20260608-01";
 const outfitSceneOverrideQueryParam = "outfitState";
 const rainDebugQueryParam = "debugRain";
 const isRainDebugEnabled = new URLSearchParams(window.location.search).get(rainDebugQueryParam) === "1";
@@ -362,12 +363,13 @@ const outfitScenes = {
     alt: "Suggested outfit for hot sunny weather: shorts, T-shirt, sunglasses, sandals, and water bottle.",
     characterMaxWidth: "70%",
     characterMaxWidthWide: "62%",
+    legendCharacterBottom: "-2px",
   },
   "warm-fair": {
     background: "warm-fair.webp",
     character: "warm-fair.webp",
     label: "Warm fair-weather outfit",
-    alt: "Suggested outfit for warm dry weather: light shirt, light linen trousers, and casual shoes.",
+    alt: "Suggested outfit for warm dry weather: light shirt, light linen trousers, casual shoes, and a relaxed walking pose.",
     characterMaxWidth: "70%",
     characterMaxWidthWide: "62%",
   },
@@ -375,7 +377,7 @@ const outfitScenes = {
     background: "mild-cloudy.webp",
     character: "mild-cloudy.webp",
     label: "Mild cloudy outfit",
-    alt: "Suggested outfit for mild cloudy weather: long trousers and a light jumper.",
+    alt: "Suggested outfit for mild cloudy weather: long trousers, a light jumper, and a relaxed hands-in-pockets stroll.",
     characterMaxWidth: "70%",
     characterMaxWidthWide: "62%",
   },
@@ -383,7 +385,7 @@ const outfitScenes = {
     background: "cool-dry.webp",
     character: "cool-dry.webp",
     label: "Cool dry outfit",
-    alt: "Suggested outfit for cool dry weather: long trousers, sweater, and light jacket.",
+    alt: "Suggested outfit for cool dry weather: long trousers, sweater, light jacket, and a relaxed half-turn stroll.",
     characterMaxWidth: "72%",
     characterMaxWidthWide: "64%",
   },
@@ -394,6 +396,7 @@ const outfitScenes = {
     alt: "Suggested outfit for cold dry weather: warm coat, scarf, long trousers, and closed shoes.",
     characterMaxWidth: "74%",
     characterMaxWidthWide: "66%",
+    legendCharacterBottom: "-2px",
   },
   "freezing-dry": {
     background: "freezing-dry.webp",
@@ -402,6 +405,7 @@ const outfitScenes = {
     alt: "Suggested outfit for freezing dry weather: thick coat, scarf, gloves, beanie, and warm shoes.",
     characterMaxWidth: "76%",
     characterMaxWidthWide: "68%",
+    legendCharacterBottom: "-2px",
   },
   fog: {
     background: "fog.webp",
@@ -410,12 +414,13 @@ const outfitScenes = {
     alt: "Suggested outfit for fog: long trousers, closed shoes, and a light jacket.",
     characterMaxWidth: "70%",
     characterMaxWidthWide: "62%",
+    legendCharacterBottom: "-2px",
   },
   drizzle: {
     background: "drizzle.webp",
     character: "drizzle.webp",
     label: "Drizzle outfit",
-    alt: "Suggested outfit for drizzle: long trousers, closed shoes, and a light rain jacket.",
+    alt: "Suggested outfit for drizzle: long trousers, closed shoes, light rain jacket, and a palm-up drizzle check.",
     characterMaxWidth: "76%",
     characterMaxWidthWide: "66%",
   },
@@ -436,24 +441,27 @@ const outfitScenes = {
     characterMaxWidth: "86%",
     characterMaxWidthMobile: "98%",
     characterMaxWidthWide: "76%",
+    legendCharacterBottom: "-2px",
   },
   "warm-rain": {
     background: "rain.webp",
     character: "warm-rain.webp",
     label: "Warm rain outfit",
-    alt: "Suggested outfit for warm rain: T-shirt, shorts, sandals, and umbrella.",
+    alt: "Suggested outfit for warm rain: T-shirt, shorts, sandals, red umbrella, and a light rainy-day strut.",
     characterMaxWidth: "86%",
     characterMaxWidthMobile: "98%",
     characterMaxWidthWide: "76%",
+    legendCharacterBottom: "-2px",
   },
   "heavy-rain": {
     background: "heavy-rain.webp",
     character: "heavy-rain.webp",
     label: "Heavy rain outfit",
-    alt: "Suggested outfit for heavy rain: waterproof jacket, rain pants, sturdy shoes, and umbrella.",
+    alt: "Suggested outfit for heavy rain: waterproof jacket, rain pants, sturdy shoes, and a two-hand umbrella grip.",
     characterMaxWidth: "86%",
     characterMaxWidthMobile: "98%",
     characterMaxWidthWide: "76%",
+    legendCharacterBottom: "-2px",
   },
   "warm-heavy-rain": {
     background: "heavy-rain.webp",
@@ -471,6 +479,7 @@ const outfitScenes = {
     alt: "Suggested outfit for snow: winter coat, scarf, gloves, beanie, and boots.",
     characterMaxWidth: "72%",
     characterMaxWidthWide: "62%",
+    legendCharacterBottom: "-2px",
   },
   "heavy-snow": {
     background: "heavy-snow.webp",
@@ -493,7 +502,7 @@ const outfitScenes = {
     background: "windy.webp",
     character: "windy.webp",
     label: "Windy outfit",
-    alt: "Suggested outfit for windy weather: windbreaker, scarf, long trousers, and closed shoes.",
+    alt: "Suggested outfit for windy weather: windbreaker, scarf, long trousers, closed shoes, and a braced leaning pose.",
     characterMaxWidth: "84%",
     characterMaxWidthMobile: "96%",
     characterMaxWidthWide: "72%",
@@ -503,6 +512,10 @@ const outfitScenes = {
 
 const outfitDefaultSceneId = "mild-cloudy";
 const outfitSceneIds = Object.keys(outfitScenes);
+function buildOutfitSceneAssetUrl(basePath, fileName) {
+  return `${basePath}${fileName}?v=${outfitSceneAssetVersion}`;
+}
+
 const outfitLegendGroups = [
   {
     title: "Dry Temperature",
@@ -528,7 +541,7 @@ const outfitLegendGroups = [
     items: [
       { sceneId: "drizzle", label: "Drizzle", description: "Long trousers, closed shoes, and a light rain jacket." },
       { sceneId: "rain", label: "Rain", description: "Waterproof jacket, umbrella, long trousers, and closed shoes." },
-      { sceneId: "heavy-rain", label: "Heavy rain", description: "Waterproof jacket, rain pants, sturdy shoes, and umbrella." },
+      { sceneId: "heavy-rain", label: "Heavy rain", description: "Waterproof jacket, rain pants, sturdy shoes, and a two-hand umbrella grip." },
       { sceneId: "thunderstorm", label: "Thunderstorm", description: "Hooded waterproof jacket, long trousers, and sturdy shoes." },
     ],
   },
@@ -1125,7 +1138,7 @@ function createOutfitLegendItem(item) {
   thumb.className = "outfit-legend-thumb";
   thumb.setAttribute("aria-hidden", "true");
   background.className = "outfit-legend-background";
-  background.src = `${outfitSceneBackgroundBasePath}${scene.background}`;
+  background.src = buildOutfitSceneAssetUrl(outfitSceneBackgroundBasePath, scene.background);
   background.width = 1920;
   background.height = 1200;
   background.alt = "";
@@ -1133,7 +1146,7 @@ function createOutfitLegendItem(item) {
   background.loading = "lazy";
   background.style.objectPosition = scene.backgroundPositionMobile || scene.backgroundPosition || "center center";
   character.className = "outfit-legend-character";
-  character.src = `${outfitSceneCharacterBasePath}${scene.character}`;
+  character.src = buildOutfitSceneAssetUrl(outfitSceneCharacterBasePath, scene.character);
   character.width = 1024;
   character.height = 1536;
   character.alt = "";
@@ -1141,6 +1154,9 @@ function createOutfitLegendItem(item) {
   character.loading = "lazy";
   if (scene.characterX) {
     character.style.left = scene.characterX;
+  }
+  if (scene.legendCharacterBottom) {
+    character.style.bottom = scene.legendCharacterBottom;
   }
   thumb.append(background, character);
 
@@ -1982,8 +1998,8 @@ function renderOutfitScene(snapshot, precipitation, weatherCode) {
   if (activeOutfitSceneId !== sceneId) {
     activeOutfitSceneId = sceneId;
     preloadedOutfitSceneIds.add(sceneId);
-    elements.outfitSceneBackground.src = `${outfitSceneBackgroundBasePath}${scene.background}`;
-    elements.outfitSceneCharacter.src = `${outfitSceneCharacterBasePath}${scene.character}`;
+    elements.outfitSceneBackground.src = buildOutfitSceneAssetUrl(outfitSceneBackgroundBasePath, scene.background);
+    elements.outfitSceneCharacter.src = buildOutfitSceneAssetUrl(outfitSceneCharacterBasePath, scene.character);
     setOutfitSceneProperty("--outfit-background-position", scene.backgroundPosition);
     setOutfitSceneProperty("--outfit-background-position-mobile", scene.backgroundPositionMobile);
     setOutfitSceneProperty("--outfit-background-position-wide", scene.backgroundPositionWide);
@@ -2228,8 +2244,8 @@ function preloadOutfitSceneImages(sceneId) {
   background.decoding = "async";
   character.decoding = "async";
   outfitScenePreloadImages.set(sceneId, [background, character]);
-  background.src = `${outfitSceneBackgroundBasePath}${scene.background}`;
-  character.src = `${outfitSceneCharacterBasePath}${scene.character}`;
+  background.src = buildOutfitSceneAssetUrl(outfitSceneBackgroundBasePath, scene.background);
+  character.src = buildOutfitSceneAssetUrl(outfitSceneCharacterBasePath, scene.character);
 }
 
 function cancelOutfitScenePreload() {

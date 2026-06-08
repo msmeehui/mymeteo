@@ -1,6 +1,6 @@
 # MyMeteo Project Context
 
-Last updated: 2026-06-06
+Last updated: 2026-06-07
 
 This file is the shared product memory for MyMeteo. Read it before discussing or changing the app in a new Codex chat. It summarizes the decisions, trade-offs, and design philosophy that emerged from the MyMeteo development chats, the app changelog, the README, git history, and the current implementation.
 
@@ -19,6 +19,8 @@ The app is intentionally mobile-first. It should fit comfortably on a phone scre
 When the user asks for ideas, advice, wording, drafts, or discussion, do not edit files or implement changes. Only make code or file changes when the user explicitly asks to build, change, implement, or update something.
 
 Changelog workflow: when implementing MyMeteo changes, suggest changelog wording separately and ask for approval before editing the changelog. Do not update the changelog automatically.
+
+Outfit image workflow: show redesigned outfit images to the user for approval before replacing app assets. When an outfit image is approved for the app, back up the previous app-facing asset in `private/outfit-scenes-source/backups/` before replacing it, and keep generated/source artifacts in the ignored `private/` archive.
 
 When implementing, keep changes scoped and verify them. For MyMeteo this usually means at least:
 
@@ -177,6 +179,8 @@ Radar downloads and decoded frames are cached carefully, with cache busting and 
 MyMeteo uses custom weather icons in `assets/weather-icons-mymeteo/`. The move to custom icons was made because they are more specific and easier to recognize than the earlier/default icons.
 
 The app icon became a red umbrella. README screenshots should reflect the current Today tab and 5-day forecast tab.
+
+Outfit illustrations that show an umbrella should use a red umbrella canopy to echo the MyMeteo logo. Umbrella handles and shafts can stay dark/black so the image still reads naturally.
 
 Clear icons are more important than decorative icons. An early attempt to make the weather icon tile more colorful with extra circles/layers was reverted because it made the icons less clear.
 

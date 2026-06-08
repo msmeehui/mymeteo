@@ -1501,7 +1501,7 @@ input[type="range"]::-moz-range-thumb {
 .outfit-legend-character {
   position: absolute;
   left: 50%;
-  bottom: 2px;
+  bottom: -5px;
   width: auto;
   height: 78px;
   transform: translateX(-50%);
