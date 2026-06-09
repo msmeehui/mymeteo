@@ -16,10 +16,10 @@ const outfitSceneBackgroundBasePath = "assets/outfit-scenes/v2/backgrounds/";
 const outfitSceneCharacterBasePath = "assets/outfit-scenes/v2/characters/";
 const outfitSceneAssetVersion = "20260608-01";
 // Replace these files and bump this version when updating the Easter egg video.
-const easterEggAssetVersion = "20260608-02";
-const easterEggShuffleVideo = {
-  src: "assets/easter-eggs/marc-shuffle-dance.mp4",
-  poster: "assets/easter-eggs/marc-shuffle-dance-poster.jpg",
+const easterEggAssetVersion = "20260609-03";
+const easterEggDanceVideo = {
+  src: "assets/easter-eggs/marc-dancing-rain.mp4",
+  poster: "assets/easter-eggs/marc-dancing-rain-poster.jpg",
 };
 const outfitSceneOverrideQueryParam = "outfitState";
 const rainDebugQueryParam = "debugRain";
@@ -2014,14 +2014,14 @@ function showEasterEgg() {
   isEasterEggActive = true;
   elements.radarPanel.classList.add("is-easter-egg-active");
   elements.easterEggScene.hidden = false;
-  elements.easterEggVideo.poster = buildEasterEggAssetUrl(easterEggShuffleVideo.poster);
-  elements.easterEggFallback.src = buildEasterEggAssetUrl(easterEggShuffleVideo.poster);
+  elements.easterEggVideo.poster = buildEasterEggAssetUrl(easterEggDanceVideo.poster);
+  elements.easterEggFallback.src = buildEasterEggAssetUrl(easterEggDanceVideo.poster);
   elements.easterEggVideo.currentTime = 0;
 
   if (shouldUseEasterEggFallback()) {
     elements.easterEggVideo.hidden = true;
     elements.easterEggFallback.hidden = false;
-    trackAnalyticsEvent("easter_egg_shuffle_fallback");
+    trackAnalyticsEvent("easter_egg_rain_dance_fallback");
     return;
   }
 
@@ -2029,7 +2029,7 @@ function showEasterEgg() {
   elements.easterEggVideo.hidden = false;
 
   if (!easterEggVideoSrcLoaded) {
-    elements.easterEggVideo.src = buildEasterEggAssetUrl(easterEggShuffleVideo.src);
+    elements.easterEggVideo.src = buildEasterEggAssetUrl(easterEggDanceVideo.src);
     easterEggVideoSrcLoaded = true;
   }
 
@@ -2040,7 +2040,7 @@ function showEasterEgg() {
       elements.easterEggFallback.hidden = false;
     });
   }
-  trackAnalyticsEvent("easter_egg_shuffle");
+  trackAnalyticsEvent("easter_egg_rain_dance");
 }
 
 function hideEasterEgg() {
