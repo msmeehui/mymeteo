@@ -71,33 +71,15 @@ const context = await browser.newContext({
   viewport: null,
 });
 
-async function keepPreviewTitle(page, previewName) {
-  await page.addInitScript((name) => {
-    const prefix = `${name} - `;
-    const fallbackTitle = "MyMeteo";
-    let latestBaseTitle = fallbackTitle;
+async function keepPreviewTitle(page, tabTitle) {
+  await page.addInitScript((desiredTitle) => {
     let isApplyingTitle = false;
-
-    function getBaseTitle(currentTitle) {
-      if (!currentTitle) {
-        return latestBaseTitle;
-      }
-
-      if (currentTitle.startsWith(prefix)) {
-        return currentTitle.slice(prefix.length) || latestBaseTitle;
-      }
-
-      return currentTitle;
-    }
+    let titleObserver;
 
     function applyPreviewTitle() {
       if (isApplyingTitle) {
         return;
       }
-
-      const baseTitle = getBaseTitle(document.title) || fallbackTitle;
-      latestBaseTitle = baseTitle;
-      const desiredTitle = `${prefix}${baseTitle}`;
 
       if (document.title !== desiredTitle) {
         isApplyingTitle = true;
@@ -109,9 +91,12 @@ async function keepPreviewTitle(page, previewName) {
     function observeTitleChanges() {
       const title = document.querySelector("title");
 
-      if (title) {
-        new MutationObserver(applyPreviewTitle).observe(title, {
+      if (title && !titleObserver) {
+        titleObserver = new MutationObserver(applyPreviewTitle);
+        titleObserver.observe(title, {
           childList: true,
+          characterData: true,
+          subtree: true,
         });
       }
     }
@@ -123,7 +108,7 @@ async function keepPreviewTitle(page, previewName) {
       observeTitleChanges();
     });
     window.addEventListener("load", applyPreviewTitle);
-  }, previewName);
+  }, tabTitle);
 }
 
 const firstPage = await context.newPage();
@@ -148,21 +133,21 @@ const pageArea = await firstPage.evaluate(() => ({
 
 for (const [index, viewport] of viewports.entries()) {
   const page = index === 0 ? firstPage : await context.newPage();
-  await keepPreviewTitle(page, viewport.name);
+  const tabTitle = `${viewport.name}: ${viewport.width}x${viewport.height} px`;
+
+  await keepPreviewTitle(page, tabTitle);
   await page.setViewportSize({
     width: viewport.width,
     height: viewport.height,
   });
   await page.goto(appUrl);
   await page.evaluate(
-    (name) => {
-      const prefix = `${name} - `;
-
-      if (!document.title.startsWith(prefix)) {
-        document.title = `${prefix}${document.title}`;
+    (title) => {
+      if (document.title !== title) {
+        document.title = title;
       }
     },
-    viewport.name,
+    tabTitle,
   );
 }
 
