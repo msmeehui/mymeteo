@@ -16,7 +16,7 @@ const outfitSceneBackgroundBasePath = "assets/outfit-scenes/v2/backgrounds/";
 const outfitSceneCharacterBasePath = "assets/outfit-scenes/v2/characters/";
 const outfitSceneAssetVersion = "20260608-01";
 // Replace these files and bump this version when updating the Easter egg video.
-const easterEggAssetVersion = "20260609-03";
+const easterEggAssetVersion = "20260609-04";
 const easterEggDanceVideo = {
   src: "assets/easter-eggs/marc-dancing-rain.mp4",
   poster: "assets/easter-eggs/marc-dancing-rain-poster.jpg",
