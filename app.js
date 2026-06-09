@@ -795,7 +795,15 @@ function bindEvents() {
 }
 
 function initAnalytics() {
-  if (!shouldEnableAnalytics() || window.gtag) {
+  if (!shouldEnableAnalytics()) {
+    return;
+  }
+
+  initGoogleAnalytics();
+}
+
+function initGoogleAnalytics() {
+  if (window.gtag) {
     return;
   }
 
@@ -820,11 +828,17 @@ function shouldEnableAnalytics() {
 }
 
 function trackAnalyticsEvent(eventName) {
-  if (!shouldEnableAnalytics() || typeof window.gtag !== "function") {
+  if (!shouldEnableAnalytics()) {
     return;
   }
 
-  window.gtag("event", eventName);
+  if (typeof window.gtag === "function") {
+    window.gtag("event", eventName);
+  }
+
+  if (typeof window.sa_event === "function") {
+    window.sa_event(eventName);
+  }
 }
 
 function renderLocation() {

@@ -423,6 +423,13 @@
                     through <a href="https://leafletjs.com/" target="_blank" rel="noopener noreferrer">Leaflet</a>
                   </dd>
                 </div>
+                <div>
+                  <dt>Analytics:</dt>
+                  <dd>
+                    <a href="https://www.simpleanalytics.com/" target="_blank" rel="noopener noreferrer">Simple Analytics</a>
+                    for privacy-friendly usage statistics. Google Analytics is temporarily still active while the switch is verified.
+                  </dd>
+                </div>
               </dl>
             </div>
           </details>
@@ -551,7 +558,18 @@
       integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
       crossorigin=""
     ></script>
+    <script>
+      window.sa_event = window.sa_event || function queueSimpleAnalyticsEvent() {
+        const args = Array.from(arguments);
+        window.sa_event.q ? window.sa_event.q.push(args) : window.sa_event.q = [args];
+      };
+    </script>
+    <script
+      id="simpleAnalyticsScript"
+      async
+      src="https://scripts.simpleanalyticscdn.com/latest.js"
+    ></script>
     <script src="assets/vendor/lucide-0.475.0.min.js"></script>
-    <script src="app.js?v=20260609-02"></script>
+    <script src="app.js?v=20260609-03"></script>
   </body>
 </html>
