@@ -65,6 +65,7 @@ No API key is required. The app uses public weather and map sources:
 - Radar frame decoding: [gifuct-js](https://github.com/matt-way/gifuct-js) through [esm.sh](https://esm.sh/)
 - Fallback radar tiles: [LibreWXR](https://librewxr.net/)
 - Map tiles: [OpenStreetMap](https://www.openstreetmap.org/) through [Leaflet](https://leafletjs.com/)
+- Privacy-friendly usage statistics: [Simple Analytics](https://www.simpleanalytics.com/)
 - Weather icons: custom MyMeteo SVG icons in `assets/weather-icons-mymeteo/`
 
 ## Notes

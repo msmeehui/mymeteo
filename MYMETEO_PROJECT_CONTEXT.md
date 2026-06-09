@@ -51,6 +51,7 @@ Primary data sources:
 - Buienradar for Netherlands point rain nowcast data and rain radar animation
 - LibreWXR as fallback/outside-Netherlands radar tiles
 - OpenStreetMap/Leaflet for maps
+- Simple Analytics for privacy-friendly pageview and lightweight product-event statistics
 
 No API key is required.
 
@@ -199,6 +200,8 @@ The page title and link-preview metadata should be generic `MyMeteo`, not `MyMet
 The `MyMeteo` title can open the About modal, like the info icon, but it should still look like plain title text. On iPhone, avoid using a native button element for the visual title if it makes the title look like a button; preserve accessibility semantics without changing the visual feel.
 
 iPhone Safari, Chrome on iPhone, and iOS home-screen shortcuts can cache CSS, JS, metadata, and app icons stubbornly. Cache-busting query strings and version bumps are part of the workflow after deploy-sensitive changes. For home-screen icon changes, users may need to delete and re-add the shortcut.
+
+MyMeteo uses Simple Analytics for privacy-friendly usage statistics and lightweight custom events such as tab switches, outfit/radar mode changes, current-location use, refreshes, and Easter egg activation. Google Analytics was removed after Simple Analytics pageviews and events were verified. Keep analytics modest and privacy-aligned; the app does not need marketing-funnel tooling.
 
 ## Design Taste
 

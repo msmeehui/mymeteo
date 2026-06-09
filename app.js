@@ -35,7 +35,6 @@ const currentLocationRefreshCooldownMs = 60 * 1000;
 const compactLocationLabelMediaQuery = "(max-width: 480px)";
 const desktopLayoutMediaQuery = "(min-width: 900px)";
 const reverseGeocodingTimeoutMs = 5 * 1000;
-const analyticsMeasurementId = "G-WLC2VP6GKK";
 const analyticsHostnames = new Set(["mymeteo.nl", "www.mymeteo.nl"]);
 const buienradarBounds = [
   [48.92249926375824, 0],
@@ -689,7 +688,6 @@ function init() {
     window.lucide.createIcons();
   }
 
-  initAnalytics();
   renderWeatherIconLegend();
   renderLocation();
   initMap();
@@ -794,35 +792,6 @@ function bindEvents() {
   }
 }
 
-function initAnalytics() {
-  if (!shouldEnableAnalytics()) {
-    return;
-  }
-
-  initGoogleAnalytics();
-}
-
-function initGoogleAnalytics() {
-  if (window.gtag) {
-    return;
-  }
-
-  window.dataLayer = window.dataLayer || [];
-  window.gtag = function gtag() {
-    window.dataLayer.push(arguments);
-  };
-  window.gtag("js", new Date());
-  window.gtag("config", analyticsMeasurementId, {
-    allow_ad_personalization_signals: false,
-    allow_google_signals: false,
-  });
-
-  const script = document.createElement("script");
-  script.async = true;
-  script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(analyticsMeasurementId)}`;
-  document.head.appendChild(script);
-}
-
 function shouldEnableAnalytics() {
   return analyticsHostnames.has(window.location.hostname.toLowerCase());
 }
@@ -830,10 +799,6 @@ function shouldEnableAnalytics() {
 function trackAnalyticsEvent(eventName) {
   if (!shouldEnableAnalytics()) {
     return;
-  }
-
-  if (typeof window.gtag === "function") {
-    window.gtag("event", eventName);
   }
 
   if (typeof window.sa_event === "function") {
