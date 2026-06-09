@@ -1,6 +1,12 @@
 {
   "name": "MyMeteo",
   "short_name": "MyMeteo",
+  "description": "A simple weather forecast with rain radar, outfit suggestions, and a 5-day outlook.",
+  "id": ".",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "categories": ["weather", "utilities"],
   "icons": [
     {
       "src": "icon-192.png",
@@ -16,6 +22,5 @@
     }
   ],
   "theme_color": "#4aa6c9",
-  "background_color": "#f4f0e7",
-  "display": "standalone"
+  "background_color": "#f4f0e7"
 }
