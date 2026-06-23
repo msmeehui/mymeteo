@@ -696,6 +696,27 @@ h1 {
   transform: translateX(-50%);
 }
 
+.outfit-debug-badge {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 3;
+  margin: 0;
+  padding: 5px 8px;
+  border: 1px solid rgba(18, 32, 27, 0.18);
+  border-radius: 4px;
+  background: rgba(255, 252, 244, 0.88);
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+  box-shadow: 0 2px 8px rgba(18, 32, 27, 0.12);
+}
+
+.outfit-debug-badge[hidden] {
+  display: none;
+}
+
 .radar-panel.is-outfit-mode .radar-map-status {
   display: none;
 }

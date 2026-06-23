@@ -64,63 +64,6 @@ function createStubElement(selector = "element") {
   };
 }
 
-const elementCache = new Map();
-
-function getStubElement(selector) {
-  if (!elementCache.has(selector)) {
-    elementCache.set(selector, createStubElement(selector));
-  }
-
-  return elementCache.get(selector);
-}
-
-const localStorageStub = {
-  getItem() {
-    return null;
-  },
-  setItem() {},
-};
-
-const documentStub = {
-  activeElement: null,
-  visibilityState: "visible",
-  addEventListener() {},
-  createElement: createStubElement,
-  createTextNode(text) {
-    return { textContent: text };
-  },
-  querySelector: getStubElement,
-  querySelectorAll() {
-    return [];
-  },
-};
-
-const windowStub = {
-  addEventListener() {},
-  clearInterval() {},
-  clearTimeout() {},
-  dataLayer: [],
-  gtag: undefined,
-  localStorage: localStorageStub,
-  location: {
-    hostname: "127.0.0.1",
-    search: "",
-  },
-  matchMedia() {
-    return {
-      addEventListener() {},
-      matches: false,
-      removeEventListener() {},
-    };
-  },
-  setInterval() {
-    return 1;
-  },
-  setTimeout() {
-    return 1;
-  },
-};
-
 class ImageStub {
   constructor() {
     this.decoding = "";
@@ -128,34 +71,108 @@ class ImageStub {
   }
 }
 
-const context = {
-  Image: ImageStub,
-  ResizeObserver: undefined,
-  URLSearchParams,
-  console,
-  document: documentStub,
-  navigator: {},
-  window: windowStub,
-};
+function loadRules(search = "") {
+  const elementCache = new Map();
 
-windowStub.document = documentStub;
-windowStub.navigator = context.navigator;
+  function getStubElement(selector) {
+    if (!elementCache.has(selector)) {
+      elementCache.set(selector, createStubElement(selector));
+    }
 
-vm.createContext(context);
-vm.runInContext(
-  `${appSource}
+    return elementCache.get(selector);
+  }
+
+  const localStorageStub = {
+    getItem() {
+      return null;
+    },
+    setItem() {},
+  };
+
+  const documentStub = {
+    activeElement: null,
+    visibilityState: "visible",
+    addEventListener() {},
+    createElement: createStubElement,
+    createTextNode(text) {
+      return { textContent: text };
+    },
+    querySelector: getStubElement,
+    querySelectorAll() {
+      return [];
+    },
+  };
+
+  const windowStub = {
+    addEventListener() {},
+    clearInterval() {},
+    clearTimeout() {},
+    dataLayer: [],
+    gtag: undefined,
+    localStorage: localStorageStub,
+    location: {
+      hostname: "127.0.0.1",
+      origin: "http://127.0.0.1:4173",
+      search,
+    },
+    matchMedia() {
+      return {
+        addEventListener() {},
+        matches: false,
+        removeEventListener() {},
+      };
+    },
+    setInterval() {
+      return 1;
+    },
+    setTimeout() {
+      return 1;
+    },
+  };
+
+  const context = {
+    Image: ImageStub,
+    ResizeObserver: undefined,
+    URLSearchParams,
+    console,
+    document: documentStub,
+    navigator: {},
+    window: windowStub,
+  };
+
+  windowStub.document = documentStub;
+  windowStub.navigator = context.navigator;
+
+  vm.createContext(context);
+  vm.runInContext(
+    `${appSource}
 globalThis.__mymeteoOutfitTest = {
   sceneIds: outfitSceneIds.slice(),
+  getOverrideSceneId() {
+    return getOutfitSceneOverrideId();
+  },
   getSceneId({ previousSceneId, snapshot, precipitation, weatherCode }) {
     activeOutfitSceneId = previousSceneId;
     return getOutfitSceneId(snapshot, precipitation, weatherCode ?? snapshot?.weatherCode);
   },
+  renderScene({ previousSceneId, snapshot, precipitation, weatherCode }) {
+    activeOutfitSceneId = previousSceneId;
+    renderOutfitScene(snapshot, precipitation, weatherCode ?? snapshot?.weatherCode);
+    return {
+      badgeHidden: elements.outfitDebugBadge.hidden,
+      badgeText: elements.outfitDebugBadge.textContent,
+      sceneId: elements.outfitScene.dataset.outfitScene,
+    };
+  },
 };`,
-  context,
-  { filename: "app.js" },
-);
+    context,
+    { filename: "app.js" },
+  );
 
-const rules = context.__mymeteoOutfitTest;
+  return context.__mymeteoOutfitTest;
+}
+
+const rules = loadRules();
 
 function weatherSnapshot({ temperature = 16, windSpeed = 8, weatherCode = 0 } = {}) {
   return {
@@ -276,52 +293,58 @@ const cases = [
     expected: "rain",
   },
   {
-    name: "heavy rain by precipitation chance and intensity",
-    snapshot: weatherSnapshot({ temperature: 18 }),
+    name: "rain code upgrades to heavy rain by chance and intensity",
+    snapshot: weatherSnapshot({ temperature: 18, weatherCode: 61 }),
     precipitation: precipitation({ chance: 50, intensity: "heavy" }),
     expected: "heavy-rain",
   },
   {
-    name: "warm heavy rain by precipitation chance and intensity",
-    snapshot: weatherSnapshot({ temperature: 27 }),
+    name: "warm rain code upgrades to warm heavy rain by chance and intensity",
+    snapshot: weatherSnapshot({ temperature: 27, weatherCode: 61 }),
     precipitation: precipitation({ chance: 50, intensity: "heavy" }),
     expected: "warm-heavy-rain",
   },
   {
-    name: "rain by precipitation chance",
-    snapshot: weatherSnapshot({ temperature: 18 }),
+    name: "drizzle code upgrades to rain at precipitation threshold",
+    snapshot: weatherSnapshot({ temperature: 18, weatherCode: 51 }),
     precipitation: precipitation({ chance: 50, intensity: "moderate" }),
     expected: "rain",
   },
   {
-    name: "warm rain by precipitation chance",
-    snapshot: weatherSnapshot({ temperature: 27 }),
+    name: "warm drizzle code upgrades to warm rain at precipitation threshold",
+    snapshot: weatherSnapshot({ temperature: 27, weatherCode: 51 }),
     precipitation: precipitation({ chance: 50, intensity: "moderate" }),
     expected: "warm-rain",
   },
   {
-    name: "drizzle by light precipitation chance",
-    snapshot: weatherSnapshot({ temperature: 18 }),
+    name: "drizzle code stays drizzle at light precipitation threshold",
+    snapshot: weatherSnapshot({ temperature: 18, weatherCode: 51 }),
     precipitation: precipitation({ chance: 30, intensity: "light" }),
     expected: "drizzle",
   },
   {
-    name: "warm drizzle by light precipitation chance",
-    snapshot: weatherSnapshot({ temperature: 27 }),
+    name: "warm drizzle code stays warm drizzle at light precipitation threshold",
+    snapshot: weatherSnapshot({ temperature: 27, weatherCode: 51 }),
     precipitation: precipitation({ chance: 30, intensity: "light" }),
     expected: "warm-drizzle",
   },
   {
-    name: "heavy snow by precipitation chance and intensity",
-    snapshot: weatherSnapshot({ temperature: -1 }),
+    name: "snow code upgrades to heavy snow by chance and intensity",
+    snapshot: weatherSnapshot({ temperature: -1, weatherCode: 71 }),
     precipitation: precipitation({ chance: 50, intensity: "heavy", type: "snow" }),
     expected: "heavy-snow",
   },
   {
-    name: "snow by precipitation chance",
-    snapshot: weatherSnapshot({ temperature: -1 }),
+    name: "snow code stays snow at light precipitation threshold",
+    snapshot: weatherSnapshot({ temperature: -1, weatherCode: 71 }),
     precipitation: precipitation({ chance: 30, intensity: "light", type: "snow" }),
     expected: "snow",
+  },
+  {
+    name: "dry weather code ignores heavy rain probability",
+    snapshot: weatherSnapshot({ temperature: 22, weatherCode: 3 }),
+    precipitation: precipitation({ chance: 80, intensity: "heavy" }),
+    expected: "warm-fair",
   },
   {
     name: "mild stays mild one degree below its band",
@@ -348,44 +371,51 @@ const cases = [
     expected: "warm-fair",
   },
   {
-    name: "rain stays rain at leave threshold",
+    name: "rain stays rain at leave threshold with rain code",
     previousSceneId: "rain",
-    snapshot: weatherSnapshot({ temperature: 18 }),
+    snapshot: weatherSnapshot({ temperature: 18, weatherCode: 61 }),
     precipitation: precipitation({ chance: 40, intensity: "moderate" }),
     expected: "rain",
   },
   {
-    name: "drizzle stays drizzle at leave threshold",
+    name: "rain leaves when selected weather code is dry",
+    previousSceneId: "rain",
+    snapshot: weatherSnapshot({ temperature: 18, weatherCode: 3 }),
+    precipitation: precipitation({ chance: 40, intensity: "moderate" }),
+    expected: "mild-cloudy",
+  },
+  {
+    name: "drizzle stays drizzle at leave threshold with drizzle code",
     previousSceneId: "drizzle",
-    snapshot: weatherSnapshot({ temperature: 18 }),
+    snapshot: weatherSnapshot({ temperature: 18, weatherCode: 51 }),
     precipitation: precipitation({ chance: 20, intensity: "light" }),
     expected: "drizzle",
   },
   {
-    name: "heavy rain stays heavy at leave threshold",
+    name: "heavy rain stays heavy at leave threshold with rain code",
     previousSceneId: "heavy-rain",
-    snapshot: weatherSnapshot({ temperature: 18 }),
+    snapshot: weatherSnapshot({ temperature: 18, weatherCode: 61 }),
     precipitation: precipitation({ chance: 40, intensity: "heavy" }),
     expected: "heavy-rain",
   },
   {
-    name: "warm rain stays warm at leave temperature",
+    name: "warm rain stays warm at leave temperature with rain code",
     previousSceneId: "warm-rain",
-    snapshot: weatherSnapshot({ temperature: 22 }),
+    snapshot: weatherSnapshot({ temperature: 22, weatherCode: 61 }),
     precipitation: precipitation({ chance: 40, intensity: "moderate" }),
     expected: "warm-rain",
   },
   {
-    name: "warm rain leaves below leave temperature",
+    name: "warm rain leaves below leave temperature with rain code",
     previousSceneId: "warm-rain",
-    snapshot: weatherSnapshot({ temperature: 21 }),
+    snapshot: weatherSnapshot({ temperature: 21, weatherCode: 61 }),
     precipitation: precipitation({ chance: 40, intensity: "moderate" }),
     expected: "rain",
   },
   {
-    name: "heavy snow stays heavy at leave threshold",
+    name: "heavy snow stays heavy at leave threshold with snow code",
     previousSceneId: "heavy-snow",
-    snapshot: weatherSnapshot({ temperature: -1 }),
+    snapshot: weatherSnapshot({ temperature: -1, weatherCode: 71 }),
     precipitation: precipitation({ chance: 40, intensity: "heavy", type: "snow" }),
     expected: "heavy-snow",
   },
@@ -401,5 +431,23 @@ for (const testCase of cases) {
 
 const untestedSceneIds = rules.sceneIds.filter((sceneId) => !seenSceneIds.has(sceneId));
 assert.equal(untestedSceneIds.length, 0, `Missing coverage for outfit scenes: ${untestedSceneIds.join(", ")}`);
+
+const oldOverrideUrlRules = loadRules("?outfitState=mild-cloudy");
+assert.equal(
+  oldOverrideUrlRules.getOverrideSceneId(),
+  undefined,
+  "outfitState is ignored unless debugOutfit is enabled",
+);
+
+const debugOverrideRules = loadRules("?debugOutfit=1&outfitState=mild-cloudy");
+assert.equal(debugOverrideRules.getOverrideSceneId(), "mild-cloudy", "debug outfit override is enabled by paired query params");
+
+const debugOverrideRender = debugOverrideRules.renderScene({
+  snapshot: weatherSnapshot({ temperature: 27 }),
+  precipitation: precipitation(),
+});
+assert.equal(debugOverrideRender.sceneId, "mild-cloudy", "debug outfit override forces the rendered scene");
+assert.equal(debugOverrideRender.badgeHidden, false, "debug outfit override reveals the forced-state badge");
+assert.equal(debugOverrideRender.badgeText, "Forced outfit: mild-cloudy", "debug outfit override labels the forced state");
 
 console.log(`Outfit state QA passed: ${cases.length} rule checks, ${rules.sceneIds.length} outfit scenes covered.`);

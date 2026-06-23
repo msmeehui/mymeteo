@@ -25,10 +25,12 @@ const easterEggDanceVideo = {
   poster: "assets/easter-eggs/marc-dancing-rain-poster.jpg",
 };
 const queryParams = new URLSearchParams(window.location.search);
+const outfitDebugQueryParam = "debugOutfit";
 const outfitSceneOverrideQueryParam = "outfitState";
 const rainDebugQueryParam = "debugRain";
 const rainSourceQueryParam = "rainSource";
 const rainSourceCompareQueryValue = "compare";
+const isOutfitDebugEnabled = queryParams.get(outfitDebugQueryParam) === "1";
 const isRainDebugEnabled = queryParams.get(rainDebugQueryParam) === "1";
 const isRainSourceCompareEnabled = queryParams.get(rainSourceQueryParam) === rainSourceCompareQueryValue;
 const outfitScenePreloadInitialDelayMs = 1200;
@@ -133,6 +135,7 @@ const elements = {
   outfitScene: document.querySelector("#outfitScene"),
   outfitSceneBackground: document.querySelector("#outfitSceneBackground"),
   outfitSceneCharacter: document.querySelector("#outfitSceneCharacter"),
+  outfitDebugBadge: document.querySelector("#outfitDebugBadge"),
   easterEggScene: document.querySelector("#easterEggScene"),
   easterEggVideo: document.querySelector("#easterEggVideo"),
   easterEggFallback: document.querySelector("#easterEggFallback"),
@@ -2339,10 +2342,12 @@ function updateOutfitModeToggle() {
 }
 
 function renderOutfitScene(snapshot, precipitation, weatherCode) {
-  const sceneId = getOutfitSceneOverrideId() || getOutfitSceneId(snapshot, precipitation, weatherCode);
+  const overrideSceneId = getOutfitSceneOverrideId();
+  const sceneId = overrideSceneId || getOutfitSceneId(snapshot, precipitation, weatherCode);
   const scene = outfitScenes[sceneId] || outfitScenes[outfitDefaultSceneId];
 
   if (!scene) {
+    updateOutfitDebugBadge();
     return;
   }
 
@@ -2367,6 +2372,7 @@ function renderOutfitScene(snapshot, precipitation, weatherCode) {
   elements.outfitSceneCharacter.title = scene.label;
   elements.outfitScene.dataset.outfitScene = sceneId;
   elements.outfitScene.setAttribute("aria-label", scene.label);
+  updateOutfitDebugBadge(overrideSceneId, scene);
 }
 
 function setOutfitSceneProperty(property, value) {
@@ -2378,8 +2384,29 @@ function setOutfitSceneProperty(property, value) {
 }
 
 function getOutfitSceneOverrideId() {
-  const sceneId = new URLSearchParams(window.location.search).get(outfitSceneOverrideQueryParam);
+  if (!isOutfitDebugEnabled) {
+    return undefined;
+  }
+
+  const sceneId = queryParams.get(outfitSceneOverrideQueryParam);
   return outfitScenes[sceneId] ? sceneId : undefined;
+}
+
+function updateOutfitDebugBadge(sceneId, scene) {
+  if (!elements.outfitDebugBadge) {
+    return;
+  }
+
+  if (isOutfitDebugEnabled && sceneId && scene) {
+    elements.outfitDebugBadge.hidden = false;
+    elements.outfitDebugBadge.textContent = `Forced outfit: ${sceneId}`;
+    elements.outfitDebugBadge.title = scene.label;
+    return;
+  }
+
+  elements.outfitDebugBadge.hidden = true;
+  elements.outfitDebugBadge.textContent = "";
+  elements.outfitDebugBadge.title = "";
 }
 
 function getOutfitSceneId(snapshot = {}, precipitation, weatherCode = snapshot.weatherCode) {
