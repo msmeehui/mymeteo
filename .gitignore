@@ -7,6 +7,7 @@ build/
 
 # Local-only project material that should not be published
 /private/
+/knmi-config.php
 /reference-character/
 /assets/outfit-scenes/v1/
 /assets/outfit-scenes/v2/source/

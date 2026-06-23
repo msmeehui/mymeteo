@@ -1,6 +1,6 @@
 # MyMeteo Project Context
 
-Last updated: 2026-06-08
+Last updated: 2026-06-23
 
 This file is the shared product memory for MyMeteo. Read it before discussing or changing the app in a new Codex chat. It summarizes the decisions, trade-offs, and design philosophy that emerged from the MyMeteo development chats, the app changelog, the README, git history, and the current implementation.
 
@@ -35,6 +35,8 @@ When implementing, keep changes scoped and verify them. For MyMeteo this usually
 MyMeteo is a static HTML/CSS/JavaScript app. It can run locally from the folder or be served by a simple static server. It is hosted publicly through GitHub Pages / mymeteo.nl.
 
 Keeping the site static, no-key, and backend-free has been an important design constraint. API-key providers are possible, but they would either expose secrets in the browser or require a backend/proxy. Prefer no-key public data sources unless there is a strong reason to change the architecture.
+
+The hidden KNMI rain-source comparison experiment is the first intentional exception to the no-backend constraint. It can use a small Cloud86/PHP proxy at `api/knmi-wms.php` for authenticated KNMI WMS requests, with the real API key kept outside `httpdocs` in a private config file. The main MyMeteo UI should still behave like a static app, keep Buienradar/Open-Meteo fallbacks, and avoid exposing KNMI source/debug details outside hidden comparison/debug surfaces until KNMI has proven more reliable in live testing.
 
 Core files:
 
