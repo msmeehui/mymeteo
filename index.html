@@ -408,12 +408,15 @@
                 <div>
                   <dt>Rain radar animation:</dt>
                   <dd>
+                    <a href="https://www.knmi.nl/" target="_blank" rel="noopener noreferrer">KNMI</a>
+                    in the Netherlands for the first 2 hours, then
                     <a href="https://www.buienradar.nl/" target="_blank" rel="noopener noreferrer">Buienradar</a>
+                    for longer range and fallback
                   </dd>
                 </div>
                 <div>
                   <dt>Near-term rain chance:</dt>
-                  <dd>Open-Meteo adjusted with Buienradar point rain data in the Netherlands for the first 2 hours, then radar data toward the 8-hour limit. Rain intensity is shown separately with a small three-step meter.</dd>
+                  <dd>Open-Meteo adjusted with KNMI point rain data in the Netherlands for the first 2 hours, then Buienradar point/radar data toward the 8-hour limit. Open-Meteo storm instability signals can upgrade heavy rain to a thunderstorm icon. Rain intensity is shown separately with a small three-step meter.</dd>
                 </div>
                 <div>
                   <dt>Radar frame decoding:</dt>
@@ -480,6 +483,11 @@
               <span class="info-section-chevron" aria-hidden="true"></span>
             </summary>
             <div class="info-section-body changelog">
+              <h3>28 June 2026</h3>
+              <ul>
+                <li>Switched Netherlands near-term rain radar and rain chance to KNMI-first data with Buienradar fallback and longer-range support, plus cautious thunderstorm icon detection.</li>
+              </ul>
+
               <h3>8 June 2026</h3>
               <ul>
                 <li>Refreshed outfit suggestion illustrations with more expressive poses.</li>
@@ -582,6 +590,6 @@
       src="https://scripts.simpleanalyticscdn.com/latest.js"
     ></script>
     <script src="assets/vendor/lucide-0.475.0.min.js"></script>
-    <script src="app.js?v=20260623-02"></script>
+    <script src="app.js?v=20260628-01"></script>
   </body>
 </html>

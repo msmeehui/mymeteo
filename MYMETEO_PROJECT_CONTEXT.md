@@ -1,6 +1,6 @@
 # MyMeteo Project Context
 
-Last updated: 2026-06-23
+Last updated: 2026-06-28
 
 This file is the shared product memory for MyMeteo. Read it before discussing or changing the app in a new Codex chat. It summarizes the decisions, trade-offs, and design philosophy that emerged from the MyMeteo development chats, the app changelog, the README, git history, and the current implementation.
 
@@ -32,11 +32,11 @@ When implementing, keep changes scoped and verify them. For MyMeteo this usually
 
 ## Current App Shape
 
-MyMeteo is a static HTML/CSS/JavaScript app. It can run locally from the folder or be served by a simple static server. It is hosted publicly through GitHub Pages / mymeteo.nl.
+MyMeteo is mostly a static HTML/CSS/JavaScript app. It can run locally from the folder or be served by a simple static server, with the production KNMI WMS route handled by a small PHP proxy on Cloud86. It is hosted publicly at mymeteo.nl.
 
-Keeping the site static, no-key, and backend-free has been an important design constraint. API-key providers are possible, but they would either expose secrets in the browser or require a backend/proxy. Prefer no-key public data sources unless there is a strong reason to change the architecture.
+Keeping the site static, no-key-in-browser, and operationally simple has been an important design constraint. API-key providers are possible, but they either expose secrets in the browser or require a backend/proxy. Prefer no-key public data sources unless there is a strong reason to change the architecture.
 
-The hidden KNMI rain-source comparison experiment is the first intentional exception to the no-backend constraint. It can use a small Cloud86/PHP proxy at `api/knmi-wms.php` for authenticated KNMI WMS requests, with the real API key kept outside `httpdocs` in a private config file. The main MyMeteo UI should still behave like a static app, keep Buienradar/Open-Meteo fallbacks, and avoid exposing KNMI source/debug details outside hidden comparison/debug surfaces until KNMI has proven more reliable in live testing.
+The KNMI rain-source rollout is the first intentional exception to the no-backend constraint. Netherlands KNMI WMS requests use a small Cloud86/PHP proxy at `api/knmi-wms.php`, with the real API key kept outside `httpdocs` in a private config file. The main MyMeteo UI should still behave like a static app, keep Buienradar/Open-Meteo fallbacks, and avoid exposing KNMI debug details outside hidden comparison/debug surfaces.
 
 Core files:
 
@@ -50,12 +50,13 @@ Primary data sources:
 - Open-Meteo Forecast API for forecast data
 - Open-Meteo Geocoding API for location autocomplete
 - OpenStreetMap Nominatim for current-location names
-- Buienradar for Netherlands point rain nowcast data and rain radar animation
+- KNMI for Netherlands two-hour rain radar and point rain nowcast data through the Cloud86 proxy
+- Buienradar for Netherlands longer-range rain radar and fallback point/radar rain data
 - LibreWXR as fallback/outside-Netherlands radar tiles
 - OpenStreetMap/Leaflet for maps
 - Simple Analytics for privacy-friendly pageview and lightweight product-event statistics
 
-No API key is required.
+No browser-exposed API key is required.
 
 ## Major Decisions
 
@@ -115,25 +116,27 @@ Spacing changes should be checked in several viewport widths. Small fixes can cr
 
 ### Treat Weather Source Conflicts Honestly
 
-Open-Meteo and Buienradar can disagree. Users may see clear radar over Amsterdam while hourly forecast rain chance says 100%, or radar rain over a location while the hourly chance is low. This is a real usability problem because users experience both as statements about the same rain question.
+Open-Meteo, KNMI, and Buienradar can disagree. Users may see clear radar over Amsterdam while hourly forecast rain chance says 100%, or radar rain over a location while the hourly chance is low. This is a real usability problem because users experience these as statements about the same rain question.
 
 The chosen direction is not to add lots of visible warnings. Instead, MyMeteo should make the displayed near-term rain chance more coherent:
 
-- For the Netherlands, use Buienradar coordinate rain data as the primary point signal for the first 2 hours.
+- For the Netherlands, use KNMI point rain from the authenticated WMS proxy as the primary point signal for the first 2 hours.
+- Fall back to Buienradar point rain if KNMI is unavailable, and use Buienradar point/radar data beyond KNMI's two-hour window.
 - For the later near-term window, sample Buienradar frames around the selected location.
 - Convert the point/radar signal into dry/light/moderate/heavy-like rain information.
 - Blend that into Open-Meteo hourly rain chance and intensity for the first 8 hours.
 - Let the blend work in both directions: radar can increase rain risk when rain is present, but can also lower probability, intensity, and rain icons when the local radar signal is dry or lighter.
-- Keep radar chance and intensity separate: chance should follow coverage/timing, while intensity should follow the local Buienradar color class so broad light rain does not become heavy rain.
+- Keep radar chance and intensity separate: chance should follow coverage/timing, while intensity should follow the local KNMI/Buienradar signal so broad light rain does not become heavy rain.
 - Use representative hourly rain signal rather than the single strongest frame, while the Today/Now card should use the nearest point/radar sample.
-- For Buienradar point rain data, keep the current hour near-now focused, but let future hourly rows use the upcoming hour so short showers are not lost between labels.
+- For point rain data, keep the current hour near-now focused, but let future hourly rows use the upcoming hour so short showers are not lost between labels.
 - Let radar influence be strongest for the first 3 hours, then fade toward the 8-hour limit.
 - After 8 hours, Open-Meteo is leading because there is no longer radar coverage.
+- For thunderstorm icons, preserve explicit Open-Meteo thunderstorm weather codes and cautiously upgrade heavy/moderate rain when Open-Meteo CAPE or lightning-potential signals also indicate storm risk. This is a storm-risk hint, not an official warning system.
 - Do not alter the radar animation based on Open-Meteo. The map should remain honest radar data.
 
-The current implementation uses blend constants in `app.js` around `buienradarPointRainMaxLookaheadHours`, `buienradarBlendMaxLookaheadHours`, `buienradarBlendFullWeightHours`, and related sampling settings. These can be tuned if live use shows overcorrection or undercorrection.
+The current implementation uses blend constants in `app.js` around `knmiRadarConfig.maxLookaheadHours`, `buienradarPointRainMaxLookaheadHours`, `buienradarBlendMaxLookaheadHours`, `buienradarBlendFullWeightHours`, and related sampling settings. These can be tuned if live use shows overcorrection or undercorrection.
 
-The About/Data Sources section and README mention that near-term rain chance in the Netherlands is Open-Meteo adjusted with Buienradar point rain data for the first 2 hours, then radar data toward the 8-hour limit.
+The About/Data Sources section and README mention that near-term rain chance in the Netherlands is Open-Meteo adjusted with KNMI point rain data for the first 2 hours, then Buienradar point/radar data toward the 8-hour limit.
 
 ### Rain Chance Should Be Easy To Scan
 
@@ -173,11 +176,11 @@ On mobile, if the user selects a new location while on the 5-day tab and then re
 
 The radar source changed several times because the desired interaction was specific: real moving rain spots, a usable time slider, and no backend/API key.
 
-Early RainViewer use was limited because future nowcast support was no longer available. Synthetic Open-Meteo forecast circles were rejected because they did not look like actual moving radar spots. LibreWXR gave real tile movement but only about one hour of future coverage. Buienradar became the Netherlands source because it provided a smoother seekable radar animation and about three hours of public no-key forecast frames.
+Early RainViewer use was limited because future nowcast support was no longer available. Synthetic Open-Meteo forecast circles were rejected because they did not look like actual moving radar spots. LibreWXR gave real tile movement but only about one hour of future coverage. Buienradar became the first Netherlands source because it provided a smoother seekable radar animation and about three hours of public no-key forecast frames.
 
-For locations in the Netherlands, Buienradar is the primary near-term rain source. The coordinate rain feed is preferred for point rain correction in the first 2 hours because it is less fragile than reading a visual radar image pixel at a lat/lon. The radar animation remains the visible map source, and the app supports a 3-hour and 8-hour Buienradar view with preloading so switching modes feels fast. Earlier investigation found the public no-key Buienradar animation endpoint capped at about 36 five-minute frames for the simple 3-hour setup; longer horizons generally require either model forecasts, different providers, or later source changes.
+After live Amsterdam testing in heavy rain and thunderstorms, KNMI became the primary Netherlands near-term rain source. KNMI drives the first two hours of the visible radar through the authenticated proxy and provides the preferred point-rain correction for the weather card, rain chance, and rain icon. Buienradar remains the longer-range/fallback source: after KNMI's two-hour radar window, the slider continues with Buienradar frames, and the 3-hour/8-hour Buienradar control still determines the extended range. Earlier investigation found the public no-key Buienradar animation endpoint capped at about 36 five-minute frames for the simple 3-hour setup; longer horizons generally require model forecasts, different providers, or later source changes.
 
-For locations outside the Netherlands or when Buienradar is unavailable, LibreWXR/fallback radar tiles are used. The outside-Netherlands one-hour radar animation was smoothed to feel less jumpy.
+For locations outside the Netherlands or when KNMI/Buienradar are unavailable, LibreWXR/fallback radar tiles are used. The outside-Netherlands one-hour radar animation was smoothed to feel less jumpy.
 
 Radar downloads and decoded frames are cached carefully, with cache busting and cleanup to avoid stale or leaking frame URLs.
 

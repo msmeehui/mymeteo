@@ -55,13 +55,14 @@ After that, you can open MyMeteo from the icon on your home screen.
 
 ## Data Sources
 
-No API key is required. The app uses public weather and map sources:
+No browser API key is required. Netherlands KNMI WMS requests are routed through the Cloud86 PHP proxy in `api/knmi-wms.php`, with the real key stored outside the public web root. The app uses these weather and map sources:
 
 - Forecast data: [Open-Meteo Forecast API](https://open-meteo.com/)
 - Location autocomplete: [Open-Meteo Geocoding API](https://open-meteo.com/en/docs/geocoding-api)
 - Current-location names: [OpenStreetMap Nominatim](https://nominatim.openstreetmap.org/)
-- Rain radar animation: [Buienradar](https://www.buienradar.nl/)
-- Near-term rain chance in the Netherlands: Open-Meteo adjusted with Buienradar point rain data for the first 2 hours, then radar data toward the 8-hour limit
+- Rain radar animation in the Netherlands: [KNMI](https://www.knmi.nl/) for the first 2 hours, then [Buienradar](https://www.buienradar.nl/) for longer range and fallback
+- Near-term rain chance in the Netherlands: Open-Meteo adjusted with KNMI point rain data for the first 2 hours, then Buienradar point/radar data toward the 8-hour limit
+- Thunderstorm icon support: Open-Meteo weather codes plus CAPE/lightning-potential signals for cautious heavy-rain storm upgrades
 - Radar frame decoding: [gifuct-js](https://github.com/matt-way/gifuct-js) through [esm.sh](https://esm.sh/)
 - Fallback radar tiles: [LibreWXR](https://librewxr.net/)
 - Map tiles: [OpenStreetMap](https://www.openstreetmap.org/) through [Leaflet](https://leafletjs.com/)

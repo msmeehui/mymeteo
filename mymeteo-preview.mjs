@@ -1,6 +1,31 @@
+import { createServer } from "node:http";
+import { readFile } from "node:fs/promises";
+import { extname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
-const appUrl = new URL("./index.html", import.meta.url).href;
+const previewHost = "127.0.0.1";
+const projectRoot = fileURLToPath(new URL("./", import.meta.url));
+const knmiProxyUrl = "https://mymeteo.nl/api/knmi-wms.php";
+const contentTypes = new Map([
+  [".css", "text/css; charset=utf-8"],
+  [".gif", "image/gif"],
+  [".html", "text/html; charset=utf-8"],
+  [".ico", "image/x-icon"],
+  [".jpg", "image/jpeg"],
+  [".jpeg", "image/jpeg"],
+  [".js", "text/javascript; charset=utf-8"],
+  [".json", "application/json; charset=utf-8"],
+  [".mp4", "video/mp4"],
+  [".png", "image/png"],
+  [".svg", "image/svg+xml"],
+  [".webmanifest", "application/manifest+json; charset=utf-8"],
+  [".webp", "image/webp"],
+]);
+
+const previewServer = await startPreviewServer();
+const previewPort = previewServer.address().port;
+const appUrl = `http://${previewHost}:${previewPort}/`;
 
 const viewports = [
   { name: "iPhone 5/SE", width: 320, height: 568 },
@@ -41,6 +66,82 @@ const browser = await chromium.launch({
 
 let isClosing = false;
 
+async function startPreviewServer() {
+  const server = createServer(async (request, response) => {
+    try {
+      const requestUrl = new URL(request.url || "/", `http://${previewHost}`);
+
+      if (requestUrl.pathname === "/api/knmi-wms.php") {
+        await proxyKnmiWmsRequest(requestUrl, response);
+        return;
+      }
+
+      await serveStaticFile(requestUrl, response);
+    } catch (error) {
+      console.error("Preview server error:", error);
+      sendPlainResponse(response, 500, "Preview server error");
+    }
+  });
+
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, previewHost, () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+
+  return server;
+}
+
+async function proxyKnmiWmsRequest(requestUrl, response) {
+  const upstreamUrl = new URL(knmiProxyUrl);
+  upstreamUrl.search = requestUrl.search;
+
+  const upstreamResponse = await fetch(upstreamUrl, {
+    headers: {
+      accept: "*/*",
+      "user-agent": "MyMeteo local preview",
+    },
+  });
+  const body = Buffer.from(await upstreamResponse.arrayBuffer());
+
+  response.writeHead(upstreamResponse.status, {
+    "access-control-allow-origin": "*",
+    "cache-control": "no-store",
+    "content-type": upstreamResponse.headers.get("content-type") || "application/octet-stream",
+  });
+  response.end(body);
+}
+
+async function serveStaticFile(requestUrl, response) {
+  const pathname = decodeURIComponent(requestUrl.pathname === "/" ? "/index.html" : requestUrl.pathname);
+  const filePath = resolve(projectRoot, `.${pathname}`);
+
+  if (!filePath.startsWith(projectRoot)) {
+    sendPlainResponse(response, 403, "Forbidden");
+    return;
+  }
+
+  try {
+    const body = await readFile(filePath);
+    response.writeHead(200, {
+      "cache-control": "no-store",
+      "content-type": contentTypes.get(extname(filePath).toLowerCase()) || "application/octet-stream",
+    });
+    response.end(body);
+  } catch {
+    sendPlainResponse(response, 404, "Not found");
+  }
+}
+
+function sendPlainResponse(response, statusCode, body) {
+  response.writeHead(statusCode, {
+    "content-type": "text/plain; charset=utf-8",
+  });
+  response.end(body);
+}
+
 async function closePreview() {
   if (isClosing) {
     process.exit(0);
@@ -59,6 +160,7 @@ async function closePreview() {
   } catch {
     // The process is already closing, so there is nothing useful to report here.
   } finally {
+    previewServer.close();
     clearTimeout(forceExit);
     process.exit(0);
   }
@@ -154,6 +256,8 @@ for (const [index, viewport] of viewports.entries()) {
 console.log(
   `Opened MyMeteo preview tabs in a ${windowSize.width}x${windowSize.height} Chrome window.`,
 );
+console.log(`Local preview server: ${appUrl}`);
+console.log(`KNMI proxy route: ${appUrl}api/knmi-wms.php -> ${knmiProxyUrl}`);
 console.log(`Chrome page area before viewport emulation: ${pageArea.width}x${pageArea.height}.`);
 console.log(`Largest requested viewport: ${largestViewport.width}x${largestViewport.height}.`);
 console.log("Close the browser or press Ctrl+C to stop.");
