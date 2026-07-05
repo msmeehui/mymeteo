@@ -130,6 +130,10 @@ const elements = {
   radarMapStatus: document.querySelector("#radarMapStatus"),
   radarTime: document.querySelector("#radarTime"),
   radarSlider: document.querySelector("#radarSlider"),
+  precipitationTimeline: document.querySelector("#precipitationTimeline"),
+  precipitationTimelineChart: document.querySelector(".precipitation-timeline-chart"),
+  precipitationTimelineArea: document.querySelector("#precipitationTimelineArea"),
+  precipitationTimelineMarker: document.querySelector("#precipitationTimelineMarker"),
   rainSourceDebugPanel: document.querySelector("#rainSourceDebugPanel"),
   rainSourceDebugGrid: document.querySelector("#rainSourceDebugGrid"),
   rainSourceModeButtons: [...document.querySelectorAll("[data-rain-source-mode]")],
@@ -643,6 +647,14 @@ const precipitationIntensityThresholds = {
   rain: { moderate: 1, heavy: 4 },
   snow: { moderate: 0.5, heavy: 2 },
 };
+const precipitationTimelineSampleIntervalMinutes = 5;
+const precipitationTimelineMaxSampleCount = 97;
+const precipitationTimelineSvgWidth = 100;
+const precipitationTimelineBaselineY = 60;
+const precipitationTimelineHeavyLineY = 10;
+const precipitationTimelineHeavyLevel = 0.85;
+const precipitationTimelinePeakY = precipitationTimelineBaselineY
+  - ((precipitationTimelineBaselineY - precipitationTimelineHeavyLineY) / precipitationTimelineHeavyLevel);
 const precipitationConditionChanceThreshold = 50;
 const stormRainChanceThreshold = 70;
 const stormCapeThreshold = 900;
@@ -664,6 +676,7 @@ const buienradarHeavyFrameRatioThreshold = 0.4;
 const buienradarSampleExactRadiusPx = 4;
 const buienradarSampleNearbyRadiusPx = 12;
 const buienradarSampleAlphaThreshold = 18;
+const knmiSampleAlphaThreshold = 18;
 const buienradarHourlyLookbackMinutes = 10;
 const buienradarHourlyWindowMinutes = 30;
 const freezingTemperatureThreshold = 0;
@@ -704,6 +717,8 @@ let knmiFramePreloadRequests = new Map();
 let knmiFrameDates = [];
 let knmiStartDate;
 let knmiReferenceDate;
+let knmiRainSamples;
+let knmiRainSampleRun;
 let knmiDisplayRequestId = 0;
 let hybridRadarStartDate;
 let hybridRadarEndDate;
@@ -721,6 +736,8 @@ let locationSearchResults = [];
 let locationSearchTimer;
 let locationSearchAbortController;
 let sliderTimestampTimer;
+let precipitationTimelineRange;
+let precipitationTimelineSamples = [];
 let hourlyForecastLayoutFrame;
 let buienradarPreloadTimer;
 let weatherData;
@@ -1899,6 +1916,7 @@ function renderWeather(data) {
 
   renderFiveDayForecast(data);
   renderSelectedWeather();
+  renderPrecipitationTimeline();
 }
 
 function renderCurrentTemperatureRange(temperatureRange) {
@@ -1918,6 +1936,441 @@ function renderCurrentPrecipitation(precipitation) {
   elements.currentPrecipitationValue.replaceChildren(
     ...createPrecipitationDisplayParts(precipitation, "current", elements.rainTotal),
   );
+}
+
+function renderPrecipitationTimeline() {
+  if (
+    !elements.precipitationTimeline
+    || !elements.precipitationTimelineArea
+  ) {
+    return;
+  }
+
+  const range = getRadarTimeRange();
+  if (
+    !weatherData?.hourly?.time?.length
+    || !range
+    || !(range.start instanceof Date)
+    || !(range.end instanceof Date)
+    || range.end <= range.start
+    || elements.radarSlider.disabled
+  ) {
+    hidePrecipitationTimeline();
+    return;
+  }
+
+  const samples = buildPrecipitationTimelineSamples(range);
+  if (samples.length < 2) {
+    hidePrecipitationTimeline();
+    return;
+  }
+
+  const points = samples.map((sample) => ({
+    x: sample.position,
+    y: getPrecipitationTimelineY(sample.level),
+  }));
+  const linePath = createPrecipitationTimelineLinePath(points);
+  const areaPath = createPrecipitationTimelineAreaPath(points, linePath);
+  const dominantType = getPrecipitationTimelineDominantType(samples);
+  const isDry = samples.every((sample) => sample.level <= 0);
+
+  precipitationTimelineRange = range;
+  precipitationTimelineSamples = samples;
+  elements.precipitationTimelineArea.setAttribute("d", areaPath);
+  elements.precipitationTimeline.classList.toggle("is-snow", dominantType === "snow");
+  elements.precipitationTimeline.classList.toggle("is-dry", isDry);
+  elements.precipitationTimeline.hidden = false;
+
+  const summary = getPrecipitationTimelineSummary(samples, range, getSelectedWeatherDate());
+  elements.precipitationTimeline.setAttribute("aria-label", summary);
+  elements.precipitationTimeline.title = summary;
+  updatePrecipitationTimelineMarker(getSelectedWeatherDate(), range, samples);
+}
+
+function hidePrecipitationTimeline() {
+  precipitationTimelineRange = undefined;
+  precipitationTimelineSamples = [];
+
+  if (!elements.precipitationTimeline) {
+    return;
+  }
+
+  elements.precipitationTimeline.hidden = true;
+  elements.precipitationTimeline.removeAttribute("title");
+  if (elements.precipitationTimelineArea) {
+    elements.precipitationTimelineArea.removeAttribute("d");
+  }
+}
+
+function buildPrecipitationTimelineSamples(range) {
+  const durationMs = range.end.getTime() - range.start.getTime();
+  const sampleIntervalMs = precipitationTimelineSampleIntervalMinutes * 60 * 1000;
+  const sampleCount = Math.min(
+    Math.max(Math.floor(durationMs / sampleIntervalMs) + 1, 2),
+    precipitationTimelineMaxSampleCount,
+  );
+
+  return Array.from({ length: sampleCount }, (_, index) => {
+    const progress = sampleCount <= 1 ? 0 : index / (sampleCount - 1);
+    const date = new Date(range.start.getTime() + durationMs * progress);
+    return buildPrecipitationTimelineSample(date, range);
+  }).filter(Boolean);
+}
+
+function buildPrecipitationTimelineSample(date, range) {
+  const hourly = weatherData?.hourly;
+  if (!hourly?.time?.length) {
+    return undefined;
+  }
+
+  const index = getClosestTimeIndex(hourly.time, date.getTime() / 1000);
+  if (index < 0) {
+    return undefined;
+  }
+
+  const precipitation = buildTimelineHourlyPrecipitation(hourly, index, date);
+  const rangeDuration = range.end.getTime() - range.start.getTime();
+  return {
+    date,
+    precipitation,
+    level: getPrecipitationTimelineLevel(precipitation),
+    position: rangeDuration > 0
+      ? ((date.getTime() - range.start.getTime()) / rangeDuration) * precipitationTimelineSvgWidth
+      : 0,
+  };
+}
+
+function buildTimelineHourlyPrecipitation(hourly, index, date) {
+  const weatherCode = hourly?.weather_code?.[index];
+  const forecastTime = date.getTime() / 1000;
+  const precipitation = buildBasePrecipitationChance({
+    chance: hourly?.precipitation_probability?.[index],
+    weatherCode,
+    rainAmount: hourly?.rain?.[index],
+    showersAmount: hourly?.showers?.[index],
+    snowfallAmount: hourly?.snowfall?.[index],
+    temperature: hourly?.temperature_2m?.[index],
+    stormSignal: getStormSignalForForecastTime(forecastTime, { hourly, index }),
+    includeIntensity: true,
+  });
+  const radarAdjustment = getPrecipitationTimelineRadarAdjustment(date);
+
+  if (radarAdjustment) {
+    return buildRadarImageTimelinePrecipitation(precipitation, radarAdjustment);
+  }
+
+  return withBuienradarPrecipitationAdjustment(precipitation, forecastTime, {
+    includeIntensity: true,
+    radarSampleMode: "instant",
+  });
+}
+
+function getPrecipitationTimelineRadarAdjustment(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return undefined;
+  }
+
+  const sampleSeries = getPrecipitationTimelineRadarSampleSeries(date);
+  if (!sampleSeries) {
+    return undefined;
+  }
+
+  return getBuienradarAdjustmentFromSampleSeries(
+    sampleSeries,
+    date,
+    "instant",
+    {
+      maxLookaheadHours: sampleSeries.maxLookaheadHours || buienradarBlendMaxLookaheadHours,
+      source: sampleSeries.source || "radar-image",
+      weight: 1,
+    },
+  );
+}
+
+function getPrecipitationTimelineRadarSampleSeries(date) {
+  if (displayedRadarSource === "hybrid") {
+    if (shouldUseKnmiForHybridDate(date)) {
+      return getBestKnmiImageRainSampleSeries(date);
+    }
+
+    return getDisplayedBuienradarImageRainSampleSeries(date);
+  }
+
+  if (displayedRadarSource === "knmi") {
+    return getBestKnmiImageRainSampleSeries(date);
+  }
+
+  if (displayedRadarSource === "buienradar") {
+    return getDisplayedBuienradarImageRainSampleSeries(date);
+  }
+
+  return undefined;
+}
+
+function buildRadarImageTimelinePrecipitation(precipitation, adjustment) {
+  const shouldUseCoverageWeightedSignal = isRadarImageAdjustmentSource(adjustment.source);
+  const radarIntensitySignal = shouldUseCoverageWeightedSignal && Number.isFinite(adjustment.signal)
+    ? adjustment.signal
+    : (Number.isFinite(adjustment.intensitySignal) ? adjustment.intensitySignal : adjustment.signal);
+  const isDry = (
+    getPrecipitationIntensityRank(getBuienradarPrecipitationIntensity(radarIntensitySignal)) <= 0
+    || adjustment.signal <= buienradarDrySignalThreshold
+  );
+  const chance = isDry ? 0 : clampNumber(adjustment.chance, 0, 100);
+  const displayChance = roundRainChanceForDisplay(chance);
+  const amount = isDry ? 0 : getBuienradarEquivalentPrecipitationAmount(radarIntensitySignal);
+  const radarIntensity = isDry ? undefined : getBuienradarPrecipitationIntensity(radarIntensitySignal);
+  const intensity = isDry
+    ? undefined
+    : getPrecipitationDisplayIntensity({
+      ...precipitation,
+      amount,
+      intensity: radarIntensity,
+    }, displayChance);
+  const adjustedPrecipitation = {
+    ...precipitation,
+    value: formatOptionalRainChance(chance),
+    chance,
+    amount,
+    intensity,
+    isRadarAdjusted: true,
+    radarAdjustment: {
+      source: adjustment.source,
+      chance: adjustment.chance,
+      signal: adjustment.signal,
+      intensitySignal: adjustment.intensitySignal,
+      intensityRank: adjustment.intensityRank,
+      intensity: radarIntensity,
+      weight: adjustment.weight,
+      sampleMode: adjustment.sampleMode,
+      horizonHours: adjustment.horizonHours,
+      value: adjustment.value,
+      amount: adjustment.amount,
+      averageValue: adjustment.averageValue,
+      peakValue: adjustment.peakValue,
+      averageAmount: adjustment.averageAmount,
+      peakAmount: adjustment.peakAmount,
+      averageSignal: adjustment.averageSignal,
+      peakSignal: adjustment.peakSignal,
+      heavyFrameRatio: adjustment.heavyFrameRatio,
+      moderateFrameRatio: adjustment.moderateFrameRatio,
+      rainFrameRatio: adjustment.rainFrameRatio,
+      sampleCount: adjustment.sampleCount,
+      wetSampleCount: adjustment.wetSampleCount,
+      time: adjustment.time,
+    },
+  };
+  adjustedPrecipitation.ariaLabel = getPrecipitationAriaLabel(adjustedPrecipitation);
+
+  return adjustedPrecipitation;
+}
+
+function getPrecipitationTimelineLevel(precipitation) {
+  if (!precipitation) {
+    return 0;
+  }
+
+  if (
+    precipitation.radarAdjustment
+    && getPrecipitationIntensityRank(precipitation.radarAdjustment.intensity) <= 0
+    && Number.isFinite(precipitation.radarAdjustment.signal)
+    && precipitation.radarAdjustment.signal <= buienradarDrySignalThreshold
+  ) {
+    return 0;
+  }
+
+  const radarSignal = isRadarImageAdjustmentSource(precipitation.radarAdjustment?.source)
+    ? precipitation.radarAdjustment?.signal
+    : precipitation.radarAdjustment?.intensitySignal;
+  if (Number.isFinite(radarSignal) && radarSignal > 0) {
+    return clampNumber(radarSignal, 0.14, 1);
+  }
+
+  if (isPrecipitationDisplayDry(precipitation)) {
+    return 0;
+  }
+
+  const rank = getPrecipitationIntensityRank(precipitation.intensity);
+  const amount = precipitation.amount;
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return rank >= 3 ? 0.85 : rank >= 2 ? 0.55 : 0.26;
+  }
+
+  const thresholds = precipitationIntensityThresholds[precipitation.type === "snow" ? "snow" : "rain"];
+  if (amount >= thresholds.heavy) {
+    return clampNumber(0.72 + ((amount - thresholds.heavy) / thresholds.heavy) * 0.24, 0.72, 1);
+  }
+
+  if (amount >= thresholds.moderate) {
+    return clampNumber(
+      0.42 + ((amount - thresholds.moderate) / (thresholds.heavy - thresholds.moderate)) * 0.26,
+      0.42,
+      0.68,
+    );
+  }
+
+  return clampNumber(0.16 + (amount / thresholds.moderate) * 0.2, 0.16, 0.36);
+}
+
+function isRadarImageAdjustmentSource(source) {
+  return source === "knmi-image" || source === "radar-image";
+}
+
+function getPrecipitationTimelineY(level) {
+  const safeLevel = clampNumber(Number(level) || 0, 0, 1);
+  return precipitationTimelineBaselineY - (precipitationTimelineBaselineY - precipitationTimelinePeakY) * safeLevel;
+}
+
+function createPrecipitationTimelineLinePath(points) {
+  if (!points.length) {
+    return "";
+  }
+
+  const commands = [`M ${formatSvgNumber(points[0].x)} ${formatSvgNumber(points[0].y)}`];
+  if (points.length === 1) {
+    return commands.join(" ");
+  }
+
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const point = points[index];
+    const nextPoint = points[index + 1];
+    const midPoint = {
+      x: (point.x + nextPoint.x) / 2,
+      y: (point.y + nextPoint.y) / 2,
+    };
+    commands.push(
+      `Q ${formatSvgNumber(point.x)} ${formatSvgNumber(point.y)} ${formatSvgNumber(midPoint.x)} ${formatSvgNumber(midPoint.y)}`,
+    );
+  }
+
+  const lastPoint = points[points.length - 1];
+  commands.push(`L ${formatSvgNumber(lastPoint.x)} ${formatSvgNumber(lastPoint.y)}`);
+  return commands.join(" ");
+}
+
+function createPrecipitationTimelineAreaPath(points, linePath) {
+  if (!points.length || !linePath) {
+    return "";
+  }
+
+  const firstPoint = points[0];
+  const lastPoint = points[points.length - 1];
+  return [
+    linePath,
+    `L ${formatSvgNumber(lastPoint.x)} ${formatSvgNumber(precipitationTimelineBaselineY)}`,
+    `L ${formatSvgNumber(firstPoint.x)} ${formatSvgNumber(precipitationTimelineBaselineY)}`,
+    "Z",
+  ].join(" ");
+}
+
+function updatePrecipitationTimelineMarker(
+  date = getSelectedWeatherDate(),
+  range = precipitationTimelineRange,
+  samples = precipitationTimelineSamples,
+) {
+  if (
+    !elements.precipitationTimeline
+    || elements.precipitationTimeline.hidden
+    || !elements.precipitationTimelineMarker
+    || !range
+    || range.end <= range.start
+  ) {
+    return;
+  }
+
+  const selectedDate = date instanceof Date && !Number.isNaN(date.getTime()) ? date : range.start;
+  const clampedTime = clampNumber(selectedDate.getTime(), range.start.getTime(), range.end.getTime());
+  const sliderProgress = getRadarSliderProgressForDate(new Date(clampedTime), range);
+  const position = getPrecipitationTimelineMarkerPosition(sliderProgress);
+
+  elements.precipitationTimelineMarker.setAttribute("x1", formatSvgNumber(position));
+  elements.precipitationTimelineMarker.setAttribute("x2", formatSvgNumber(position));
+
+  const nearestSample = getClosestPrecipitationTimelineSample(new Date(clampedTime), samples);
+  if (nearestSample) {
+    const summary = getPrecipitationTimelineSummary(samples, range, new Date(clampedTime));
+    elements.precipitationTimeline.setAttribute("aria-label", summary);
+    elements.precipitationTimeline.title = summary;
+  }
+}
+
+function getPrecipitationTimelineMarkerPosition(progress) {
+  if (!elements.precipitationTimelineChart || !elements.radarSlider) {
+    return clampNumber(progress, 0, 1) * precipitationTimelineSvgWidth;
+  }
+
+  const chartRect = elements.precipitationTimelineChart.getBoundingClientRect();
+  const sliderRect = elements.radarSlider.getBoundingClientRect();
+  const thumbSize = getRadarSliderThumbSize();
+  if (!chartRect.width || !sliderRect.width || sliderRect.width <= thumbSize) {
+    return clampNumber(progress, 0, 1) * precipitationTimelineSvgWidth;
+  }
+
+  const thumbCenterX = sliderRect.left
+    + thumbSize / 2
+    + clampNumber(progress, 0, 1) * (sliderRect.width - thumbSize);
+  return clampNumber(
+    ((thumbCenterX - chartRect.left) / chartRect.width) * precipitationTimelineSvgWidth,
+    0,
+    precipitationTimelineSvgWidth,
+  );
+}
+
+function getRadarSliderThumbSize() {
+  const value = Number.parseFloat(window.getComputedStyle(elements.radarSlider).getPropertyValue("--radar-slider-thumb-size"));
+  return Number.isFinite(value) && value > 0 ? value : 41;
+}
+
+function getClosestPrecipitationTimelineSample(date, samples = precipitationTimelineSamples) {
+  if (!(date instanceof Date) || !samples?.length) {
+    return undefined;
+  }
+
+  return samples
+    .map((sample) => ({
+      sample,
+      distance: Math.abs(sample.date.getTime() - date.getTime()),
+    }))
+    .sort((left, right) => left.distance - right.distance)[0]?.sample;
+}
+
+function getPrecipitationTimelineDominantType(samples) {
+  return getDominantPrecipitationType(
+    samples.map((sample) => sample.precipitation).filter(Boolean),
+    { minimumChance: meaningfulPrecipitationChanceThreshold },
+  );
+}
+
+function getPrecipitationTimelineSummary(samples, range, selectedDate) {
+  const dominantType = getPrecipitationTimelineDominantType(samples);
+  const wetSamples = samples.filter((sample) => sample.level > 0);
+  const peakSample = samples.reduce((peak, sample) => (sample.level > peak.level ? sample : peak), samples[0]);
+  const selectedSample = getClosestPrecipitationTimelineSample(selectedDate, samples) || samples[0];
+  const rangeLabel = `${formatClock(range.start)} to ${formatClock(range.end)}`;
+  const selectedLabel = selectedSample
+    ? `${formatClock(selectedSample.date)} ${getPrecipitationTimelineSampleLabel(selectedSample)}`
+    : "selected time unavailable";
+
+  if (!wetSamples.length) {
+    return `Precipitation timeline from ${rangeLabel}: dry. Selected time ${selectedLabel}.`;
+  }
+
+  const peakIntensity = getPrecipitationTimelineSampleLabel(peakSample);
+  return `${capitalizeWord(dominantType)} timeline from ${rangeLabel}: peak ${peakIntensity}. Selected time ${selectedLabel}.`;
+}
+
+function getPrecipitationTimelineSampleLabel(sample) {
+  if (!sample?.precipitation || sample.level <= 0 || isPrecipitationDisplayDry(sample.precipitation)) {
+    return "dry";
+  }
+
+  const type = sample.precipitation.type === "snow" ? "snow" : "rain";
+  const intensity = sample.precipitation.intensity || getPrecipitationIntensityByRank(Math.round(sample.level * 3)) || "light";
+  return `${intensity} ${type}`;
+}
+
+function formatSvgNumber(value) {
+  return Number.isFinite(value) ? String(Math.round(value * 100) / 100) : "0";
 }
 
 function renderRainSourceDebugPanel({ date = getSelectedWeatherDate(), precipitation } = {}) {
@@ -2236,6 +2689,7 @@ function renderTemperatureAndWind({ temperature, windDirection, windSpeed, time 
 function setActiveRadarDate(date) {
   activeRadarDate = date instanceof Date && !Number.isNaN(date.getTime()) ? date : undefined;
   renderSelectedWeather(activeRadarDate);
+  updatePrecipitationTimelineMarker(activeRadarDate);
 }
 
 function getActiveRadarDate() {
@@ -4089,6 +4543,8 @@ function displayKnmiRadar(radar) {
   elements.radarTime.classList.remove("error");
   setKnmiFramePosition(0);
   updateSliderTimestamps();
+  renderPrecipitationTimeline();
+  prepareKnmiRainSamples(radar);
   clearRadarMapStatus();
   refreshMapSize();
 }
@@ -4128,8 +4584,10 @@ function displayHybridRadar(knmiRadar, buienradarRadar) {
   elements.radarTime.classList.remove("error");
   setHybridRadarPosition(0);
   updateSliderTimestamps();
+  renderPrecipitationTimeline();
   clearRadarMapStatus();
   refreshMapSize();
+  prepareKnmiRainSamples(knmiRadar);
   prepareBuienradarRainSamples(buienradarRadar);
 
   if (previousFrameUrls !== buienradarFrameUrls && !isBuienradarFrameUrlsCached(previousFrameUrls)) {
@@ -4165,6 +4623,7 @@ function displayBuienradarRadar(radar) {
   elements.radarSlider.step = "1";
   setBuienradarFramePosition(0);
   updateSliderTimestamps();
+  renderPrecipitationTimeline();
   clearRadarMapStatus();
   refreshMapSize();
   prepareBuienradarRainSamples(radar);
@@ -4211,6 +4670,7 @@ async function loadLibreWxrRadar() {
   elements.radarSlider.value = String(nextValue);
   setLibreWxrRadarPosition(nextValue);
   updateSliderTimestamps();
+  renderPrecipitationTimeline();
   clearRadarMapStatus();
   refreshMapSize();
 }
@@ -4258,6 +4718,7 @@ function disableRadar(message) {
   setRadarMapStatus(message, { isError: true });
   elements.radarSlider.removeAttribute("aria-valuetext");
   updateSliderTimestamps();
+  hidePrecipitationTimeline();
   elements.radarTime.classList.add("error");
 }
 
@@ -4542,6 +5003,56 @@ function getRadarDateForSlider(value) {
   return getBuienradarDateForSlider(value) || getLibreWxrDateForSlider(value);
 }
 
+function getRadarSliderProgressForDate(date, range = getRadarTimeRange()) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return 0;
+  }
+
+  const maxValue = Number(elements.radarSlider.max) || 0;
+  if (maxValue > 0) {
+    const sliderValue = getRadarSliderValueForDate(date);
+    if (Number.isFinite(sliderValue)) {
+      return clampNumber(sliderValue / maxValue, 0, 1);
+    }
+  }
+
+  if (!range || !(range.start instanceof Date) || !(range.end instanceof Date) || range.end <= range.start) {
+    return 0;
+  }
+
+  return clampNumber((date.getTime() - range.start.getTime()) / (range.end.getTime() - range.start.getTime()), 0, 1);
+}
+
+function getRadarSliderValueForDate(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return undefined;
+  }
+
+  const maxValue = Number(elements.radarSlider.max) || 0;
+  if (maxValue <= 0) {
+    return undefined;
+  }
+
+  if (displayedRadarSource === "hybrid" && hybridRadarStartDate) {
+    const frameDurationMs = knmiRadarConfig.frameMinutes * 60 * 1000;
+    return clampNumber(((date.getTime() - hybridRadarStartDate.getTime()) / frameDurationMs) * 100, 0, maxValue);
+  }
+
+  if (displayedRadarSource === "knmi" && knmiFrameDates.length) {
+    return clampNumber(getKnmiFramePositionForDate(date) * 100, 0, maxValue);
+  }
+
+  if (buienradarFrameUrls.length && buienradarStartDate) {
+    return clampNumber(getBuienradarFramePositionForDate(date) * 100, 0, maxValue);
+  }
+
+  if (radarFrames.length) {
+    return getLibreWxrSliderValueForDate(date, maxValue);
+  }
+
+  return undefined;
+}
+
 function getRadarTimeRange() {
   const maxValue = Number(elements.radarSlider.max) || 0;
   if (displayedRadarSource === "hybrid") {
@@ -4664,6 +5175,35 @@ function getLibreWxrDateForSlider(value) {
   return new Date(interpolateUnixTime(lowerFrame.time, upperFrame.time, progress) * 1000);
 }
 
+function getLibreWxrSliderValueForDate(date, maxValue = Number(elements.radarSlider.max) || 0) {
+  if (!radarFrames.length || !(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return undefined;
+  }
+
+  const targetTime = date.getTime() / 1000;
+  const firstFrame = radarFrames[0];
+  const lastFrame = radarFrames[radarFrames.length - 1];
+  if (targetTime <= firstFrame.time) {
+    return 0;
+  }
+
+  if (targetTime >= lastFrame.time) {
+    return maxValue;
+  }
+
+  for (let index = 0; index < radarFrames.length - 1; index += 1) {
+    const lowerFrame = radarFrames[index];
+    const upperFrame = radarFrames[index + 1];
+    if (targetTime >= lowerFrame.time && targetTime <= upperFrame.time) {
+      const frameDuration = upperFrame.time - lowerFrame.time;
+      const progress = frameDuration > 0 ? (targetTime - lowerFrame.time) / frameDuration : 0;
+      return clampNumber((index + progress) * 100, 0, maxValue);
+    }
+  }
+
+  return undefined;
+}
+
 function scheduleSliderTimestampsUpdate() {
   window.clearTimeout(sliderTimestampTimer);
   sliderTimestampTimer = window.setTimeout(updateSliderTimestamps, 100);
@@ -4677,7 +5217,8 @@ function updateSliderTimestamps() {
     return;
   }
 
-  const trackWidth = elements.radarSlider.getBoundingClientRect().width;
+  const sliderWidth = elements.radarSlider.getBoundingClientRect().width;
+  const trackWidth = Math.max(sliderWidth - getRadarSliderThumbSize(), 0);
   const maxLabels = Math.max(2, Math.min(13, Math.floor(trackWidth / 58)));
   const dates = getSliderTimestampDates(range.start, range.end, maxLabels);
   const track = document.createElement("div");
@@ -4719,7 +5260,7 @@ function buildAlignedSliderTimestampDates(start, end, intervalMinutes) {
 
 function createSliderTimestamp(date, start, end) {
   const timestamp = document.createElement("span");
-  const position = ((date - start) / (end - start)) * 100;
+  const position = getRadarSliderProgressForDate(date, { start, end }) * 100;
   timestamp.className = "slider-timestamp";
   timestamp.style.left = `${position}%`;
   timestamp.textContent = formatClock(date);
@@ -4852,11 +5393,13 @@ function prepareBuienradarRainSamples(radar) {
 
       buienradarRainSamples.set(modeId, {
         modeId,
+        source: "radar-image",
         frameUrls: radar.frameUrls,
         locationKey,
         startDate: radar.startDate,
         fetchedAt: radar.fetchedAt,
         frameMinutes: getBuienradarRadarMode(modeId).frameMinutes,
+        maxLookaheadHours: buienradarBlendMaxLookaheadHours,
         samples,
       });
       renderWeatherForRadarBlend();
@@ -4864,6 +5407,95 @@ function prepareBuienradarRainSamples(radar) {
     .catch((error) => {
       console.warn("Could not sample Buienradar rain at the selected location.", error);
     });
+}
+
+function prepareKnmiRainSamples(radar) {
+  if (!radar?.frameUrls?.length || !isInBuienradarBounds(selectedLocation)) {
+    return;
+  }
+
+  const locationKey = getBuienradarSampleLocationKey(selectedLocation);
+  if (
+    knmiRainSamples?.frameUrls === radar.frameUrls
+    && knmiRainSamples.locationKey === locationKey
+    && isFreshKnmiRadar(knmiRainSamples)
+  ) {
+    return;
+  }
+
+  const sampleRun = {
+    frameUrls: radar.frameUrls,
+    locationKey,
+  };
+  knmiRainSampleRun = sampleRun;
+
+  buildKnmiRainSamples(radar, selectedLocation)
+    .then((samples) => {
+      if (
+        knmiRainSampleRun !== sampleRun
+        || sampleRun.locationKey !== getBuienradarSampleLocationKey(selectedLocation)
+        || !samples.length
+      ) {
+        return;
+      }
+
+      knmiRainSamples = {
+        modeId: "knmi-image",
+        source: "knmi-image",
+        frameUrls: radar.frameUrls,
+        locationKey,
+        startDate: radar.startDate,
+        fetchedAt: radar.fetchedAt,
+        frameMinutes: knmiRadarConfig.frameMinutes,
+        maxLookaheadHours: knmiRadarConfig.maxLookaheadHours,
+        samples,
+      };
+      renderWeatherForRadarBlend();
+    })
+    .catch((error) => {
+      console.warn("Could not sample KNMI rain at the selected location.", error);
+    });
+}
+
+async function buildKnmiRainSamples(radar, location) {
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) {
+    return [];
+  }
+
+  const samples = [];
+
+  for (let index = 0; index < radar.frameUrls.length; index += 1) {
+    const image = await loadRadarSampleImage(radar.frameUrls[index]);
+    if (!image) {
+      continue;
+    }
+
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+    if (!width || !height) {
+      continue;
+    }
+
+    canvas.width = width;
+    canvas.height = height;
+    context.clearRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+
+    const sample = getKnmiFrameRainSample(context, width, height, location);
+    const frameDate = radar.frameDates?.[index];
+    const time = frameDate instanceof Date && !Number.isNaN(frameDate.getTime())
+      ? frameDate.getTime()
+      : radar.startDate.getTime() + index * knmiRadarConfig.frameMinutes * 60 * 1000;
+    samples.push({
+      ...sample,
+      time,
+      chance: getBuienradarSignalChance(sample),
+    });
+  }
+
+  return samples;
 }
 
 async function buildBuienradarRainSamples(radar, location) {
@@ -4877,7 +5509,7 @@ async function buildBuienradarRainSamples(radar, location) {
   const samples = [];
 
   for (let index = 0; index < radar.frameUrls.length; index += 1) {
-    const image = await loadBuienradarSampleImage(radar.frameUrls[index]);
+    const image = await loadRadarSampleImage(radar.frameUrls[index]);
     if (!image) {
       continue;
     }
@@ -4905,7 +5537,7 @@ async function buildBuienradarRainSamples(radar, location) {
   return samples;
 }
 
-function loadBuienradarSampleImage(url) {
+function loadRadarSampleImage(url) {
   return new Promise((resolve) => {
     const image = new Image();
     image.onload = () => resolve(image);
@@ -4915,6 +5547,14 @@ function loadBuienradarSampleImage(url) {
 }
 
 function getBuienradarFrameRainSample(context, width, height, location) {
+  return getRadarFrameRainSample(context, width, height, location, getBuienradarPixelRainSample);
+}
+
+function getKnmiFrameRainSample(context, width, height, location) {
+  return getRadarFrameRainSample(context, width, height, location, getKnmiPixelRainSample);
+}
+
+function getRadarFrameRainSample(context, width, height, location, pixelRainSampler) {
   const point = getBuienradarPixelForLocation(location, width, height);
   if (!point) {
     return {
@@ -4955,7 +5595,7 @@ function getBuienradarFrameRainSample(context, width, height, location) {
       }
 
       const pixelIndex = (y * sampleWidth + x) * 4;
-      const pixelSample = getBuienradarPixelRainSample(
+      const pixelSample = pixelRainSampler(
         data[pixelIndex],
         data[pixelIndex + 1],
         data[pixelIndex + 2],
@@ -5047,6 +5687,48 @@ function getBuienradarPixelRainSample(red, green, blue, alpha) {
     intensityRank = 2;
   } else if (isLightRainColor) {
     intensityRank = 1;
+  }
+
+  if (opacity < 0.28 && intensityRank > 1) {
+    intensityRank -= 1;
+  }
+
+  return {
+    intensityRank,
+    chanceSignal: getBuienradarChanceSignalForRank(intensityRank) * Math.max(opacity, 0.45),
+  };
+}
+
+function getKnmiPixelRainSample(red, green, blue, alpha) {
+  if (alpha < knmiSampleAlphaThreshold || Math.max(red, green, blue) < 30) {
+    return {
+      intensityRank: 0,
+      chanceSignal: 0,
+    };
+  }
+
+  const opacity = alpha / 255;
+  const maxChannel = Math.max(red, green, blue);
+  const minChannel = Math.min(red, green, blue);
+  const saturation = maxChannel - minChannel;
+  const brightness = (red + green + blue) / 3;
+  const isNeutral = saturation < 18 || (brightness > 235 && saturation < 35);
+  let intensityRank = 0;
+
+  if (!isNeutral) {
+    const isPurple = red > 110 && blue > 125 && green < 145 && saturation > 45;
+    const isRedOrOrange = red > 165 && green < 185 && blue < 160 && saturation > 45;
+    const isYellow = red > 165 && green > 135 && blue < 145 && saturation > 35;
+    const isGreen = green > 115 && red < 190 && blue < 185 && saturation > 35;
+    const isBlue = blue > 85 && saturation > 25;
+
+    if (isPurple || isRedOrOrange) {
+      intensityRank = 3;
+    } else if (isYellow || isGreen) {
+      intensityRank = 2;
+    } else if (isBlue || saturation > 35) {
+      intensityRank = 1;
+    }
   }
 
   if (opacity < 0.28 && intensityRank > 1) {
@@ -5330,7 +6012,7 @@ async function prepareKnmiPointRainForLocation(location, { forceRefresh = false 
         message: getKnmiPointRainErrorMessage(error),
         fetchedAt: Date.now(),
       });
-      scheduleKnmiPointRainDebugRefresh(locationKey);
+      scheduleKnmiPointRainRenderRefresh(locationKey);
       throw error;
     })
     .finally(() => {
@@ -5369,7 +6051,7 @@ async function downloadKnmiPointRain(location, locationKey) {
   });
   knmiPointRainCache.set(locationKey, sampleSeries);
   knmiPointRainErrors.delete(locationKey);
-  scheduleKnmiPointRainDebugRefresh(locationKey);
+  scheduleKnmiPointRainRenderRefresh(locationKey);
   fillKnmiPointRainSampleSeries({
     location,
     locationKey,
@@ -5422,7 +6104,7 @@ function fillKnmiPointRainSampleSeries({ location, locationKey, referenceDate, d
       });
       if (samples.length) {
         sampleSeries.fetchedAt = Date.now();
-        scheduleKnmiPointRainDebugRefresh(locationKey);
+        scheduleKnmiPointRainRenderRefresh(locationKey);
       }
     })
     .catch((error) => {
@@ -5441,10 +6123,9 @@ function addKnmiPointRainSample(sampleSeries, sample) {
   sampleSeries.samples.sort((left, right) => left.time - right.time);
 }
 
-function scheduleKnmiPointRainDebugRefresh(locationKey) {
+function scheduleKnmiPointRainRenderRefresh(locationKey) {
   if (
-    !isRainSourceCompareEnabled
-    || getBuienradarSampleLocationKey(selectedLocation) !== locationKey
+    getBuienradarSampleLocationKey(selectedLocation) !== locationKey
     || knmiPointRainRenderTimer
   ) {
     return;
@@ -5568,6 +6249,7 @@ function renderWeatherForRadarBlend() {
 
   renderFiveDayForecast(weatherData);
   renderSelectedWeather(getSelectedWeatherDate());
+  renderPrecipitationTimeline();
 }
 
 function getBuienradarAdjustmentForForecastTime(forecastTime, { radarSampleMode = "hourly" } = {}) {
@@ -5738,6 +6420,35 @@ function getBestKnmiPointRainSampleSeries(forecastDate) {
   }
 
   return undefined;
+}
+
+function getBestKnmiImageRainSampleSeries(forecastDate) {
+  const locationKey = getBuienradarSampleLocationKey(selectedLocation);
+
+  if (
+    knmiRainSamples?.locationKey === locationKey
+    && isFreshKnmiRadar(knmiRainSamples)
+    && doesBuienradarSampleSeriesCoverForecastDate(knmiRainSamples, forecastDate)
+  ) {
+    return knmiRainSamples;
+  }
+
+  return undefined;
+}
+
+function getDisplayedBuienradarImageRainSampleSeries(forecastDate) {
+  const locationKey = getBuienradarSampleLocationKey(selectedLocation);
+  const sampleSeries = buienradarRainSamples.get(loadedBuienradarRadarModeId);
+
+  if (
+    sampleSeries?.locationKey === locationKey
+    && isFreshBuienradarRadar(sampleSeries)
+    && doesBuienradarSampleSeriesCoverForecastDate(sampleSeries, forecastDate)
+  ) {
+    return sampleSeries;
+  }
+
+  return getBestBuienradarRainSampleSeries(forecastDate);
 }
 
 function getBestBuienradarRainSampleSeries(forecastDate) {
@@ -6068,6 +6779,8 @@ function clearKnmiRadar() {
   knmiFrameDates = [];
   knmiStartDate = undefined;
   knmiReferenceDate = undefined;
+  knmiRainSamples = undefined;
+  knmiRainSampleRun = undefined;
 }
 
 function buildBuienradarAnimationUrl(radarMode = getBuienradarRadarMode()) {

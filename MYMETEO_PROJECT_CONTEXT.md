@@ -1,6 +1,6 @@
 # MyMeteo Project Context
 
-Last updated: 2026-06-28
+Last updated: 2026-07-05
 
 This file is the shared product memory for MyMeteo. Read it before discussing or changing the app in a new Codex chat. It summarizes the decisions, trade-offs, and design philosophy that emerged from the MyMeteo development chats, the app changelog, the README, git history, and the current implementation.
 
@@ -84,6 +84,10 @@ The About modal is the right home for supporting context: creator info, a combin
 The Today tab combines the rain radar map with a compact selected-time weather card. The card shows time, icon/condition, temperature, remaining-day high/low, wind, and rain chance.
 
 The radar slider should control the radar map and selected radar time. In an early iteration it also updated temperature and wind predictions, but that was deliberately reverted because short-term temp/wind changes were not useful enough and made the interaction feel broader than needed.
+
+The radar slider has a compact precipitation timeline above the range input. It should show the expected local precipitation shape for the same slider range with a soft filled graph and dry/light/moderate/heavy scale, but avoid visible millimeters-per-hour values because they add precision without much everyday feel. Keep the graph separate from the slider thumb so a finger does not block the precipitation shape while scrubbing. The selected-time marker should stay aligned with the slider. Inside visible radar coverage, the graph should be radar-map-first: sample the same KNMI/Buienradar radar image frames around the selected location and let those frame samples decide the dry/light/moderate/heavy shape. Use point/model data only as fallback or beyond reliable radar-image coverage, so the timeline does not visibly contradict the radar map. When the local radar image/point signal is explicitly dry inside the radar coverage window, the graph should stay visually dry rather than showing a leftover model-only drizzle hint. The Heavy guide line should be a heavy-rain threshold, not the ceiling of the graph; stronger heavy precipitation may rise into the small breathing space above the line.
+
+The radar slider thumb, selected-time marker, timestamp labels, and weather-card time should share the same thumb-center geometry. Do not position the visible timestamp labels across the full input width if the thumb itself can only travel between inset endpoints.
 
 The leftmost slider position should show `Now` rather than an exact technical radar time. The exact radar time is still preserved in title/ARIA text. When the slider moves away from the left edge, the visible label switches to `At HH:MM`, then returns to `Now` when the slider returns to the left edge.
 
