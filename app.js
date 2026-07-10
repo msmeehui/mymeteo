@@ -764,6 +764,7 @@ let statusMessage = elements.updatedAt.textContent || "Loading forecast...";
 let statusTitle = elements.updatedAt.title || "";
 let statusIsError = elements.updatedAt.classList.contains("error");
 let refreshTimer;
+let radarSliderWasAtStart = true;
 
 function init() {
   if (window.lucide) {
@@ -4540,6 +4541,7 @@ function displayKnmiRadar(radar) {
   elements.radarSlider.max = String(Math.max((radar.frameUrls.length - 1) * 100, 0));
   elements.radarSlider.step = "1";
   elements.radarSlider.value = "0";
+  radarSliderWasAtStart = true;
   elements.radarTime.classList.remove("error");
   setKnmiFramePosition(0);
   updateSliderTimestamps();
@@ -4581,6 +4583,7 @@ function displayHybridRadar(knmiRadar, buienradarRadar) {
   elements.radarSlider.max = String(maxValue);
   elements.radarSlider.step = "1";
   elements.radarSlider.value = "0";
+  radarSliderWasAtStart = true;
   elements.radarTime.classList.remove("error");
   setHybridRadarPosition(0);
   updateSliderTimestamps();
@@ -4621,6 +4624,7 @@ function displayBuienradarRadar(radar) {
   elements.radarSlider.disabled = radar.frameUrls.length < 2;
   elements.radarSlider.max = String(Math.max((buienradarTimeline.frameCount - 1) * 100, 0));
   elements.radarSlider.step = "1";
+  radarSliderWasAtStart = true;
   setBuienradarFramePosition(0);
   updateSliderTimestamps();
   renderPrecipitationTimeline();
@@ -4658,8 +4662,12 @@ async function loadLibreWxrRadar() {
   clearBuienradarRadar();
   clearKnmiRadar();
   displayedRadarSource = "librewxr";
-  const previousValue = Number(elements.radarSlider.value) || 0;
-  const previousRatio = Number(elements.radarSlider.max) > 0 ? previousValue / Number(elements.radarSlider.max) : 0;
+  const previousMin = getRadarSliderMin();
+  const previousValue = Number(elements.radarSlider.value) || previousMin;
+  const previousMax = Number(elements.radarSlider.max) || 0;
+  const previousRatio = previousMax > previousMin
+    ? (previousValue - previousMin) / (previousMax - previousMin)
+    : 0;
   const maxValue = Math.max((radarFrames.length - 1) * 100, 0);
   const nextValue = Math.round(Math.min(Math.max(previousRatio, 0), 1) * maxValue);
   createLibreWxrRadarLayers();
@@ -4668,6 +4676,7 @@ async function loadLibreWxrRadar() {
   elements.radarSlider.max = String(maxValue);
   elements.radarSlider.step = "1";
   elements.radarSlider.value = String(nextValue);
+  radarSliderWasAtStart = isRadarSliderAtStart(nextValue);
   setLibreWxrRadarPosition(nextValue);
   updateSliderTimestamps();
   renderPrecipitationTimeline();
@@ -4713,6 +4722,7 @@ function disableRadar(message) {
   elements.radarSlider.disabled = true;
   elements.radarSlider.max = "0";
   elements.radarSlider.value = "0";
+  radarSliderWasAtStart = true;
   elements.radarTime.textContent = message;
   setRainForecastBadgeCurrent();
   setRadarMapStatus(message, { isError: true });
@@ -4764,22 +4774,55 @@ function setLibreWxrRadarPosition(value) {
 }
 
 function handleRadarSliderInput(value) {
+  const rebased = rebaseRadarSliderForInteraction(value);
+  const sliderValue = rebased.value;
+
   if (displayedRadarSource === "hybrid") {
-    setHybridRadarPosition(value);
-    return;
+    setHybridRadarPosition(sliderValue);
+  } else if (displayedRadarSource === "knmi") {
+    setKnmiFramePosition(sliderValue);
+  } else if (buienradarFrameUrls.length) {
+    setBuienradarFramePosition(sliderValue);
+  } else {
+    setLibreWxrRadarPosition(sliderValue);
   }
 
-  if (displayedRadarSource === "knmi") {
-    setKnmiFramePosition(value);
-    return;
+  radarSliderWasAtStart = isRadarSliderAtStart(sliderValue);
+
+  if (rebased.didRebase) {
+    updateSliderTimestamps();
+    renderPrecipitationTimeline();
+  }
+}
+
+function rebaseRadarSliderForInteraction(value) {
+  const previousValue = Number(value) || 0;
+  if (radarSliderWasAtStart === false || isRadarSliderAtStart(previousValue)) {
+    return { value: previousValue, didRebase: false };
   }
 
-  if (buienradarFrameUrls.length) {
-    setBuienradarFramePosition(value);
-    return;
+  const minValue = getRadarSliderMin();
+  const maxValue = Number(elements.radarSlider.max) || 0;
+  if (maxValue <= minValue) {
+    return { value: previousValue, didRebase: false };
   }
 
-  setLibreWxrRadarPosition(value);
+  const nowValue = getRadarSliderValueForDate(new Date());
+  if (!Number.isFinite(nowValue)) {
+    return { value: previousValue, didRebase: false };
+  }
+
+  const nextMinValue = clampNumber(Math.ceil(nowValue), minValue, maxValue);
+  if (nextMinValue <= minValue || nextMinValue >= maxValue) {
+    return { value: previousValue, didRebase: false };
+  }
+
+  const previousProgress = clampNumber((previousValue - minValue) / (maxValue - minValue), 0, 1);
+  const nextValue = Math.round(nextMinValue + previousProgress * (maxValue - nextMinValue));
+  elements.radarSlider.min = String(nextMinValue);
+  elements.radarSlider.value = String(nextValue);
+
+  return { value: nextValue, didRebase: true };
 }
 
 function setBuienradarFramePosition(value) {
@@ -4788,8 +4831,9 @@ function setBuienradarFramePosition(value) {
   }
 
   const framePosition = getBuienradarFramePositionForSliderValue(value);
-  const frameDate = renderBuienradarFramePosition(framePosition);
-  updateRadarTimeDisplay(frameDate, Math.round(framePosition * 100), DEFAULT_LOCATION.timezone);
+  renderBuienradarFramePosition(framePosition);
+  const frameDate = getBuienradarDateForSlider(value);
+  updateRadarTimeDisplay(frameDate, value, DEFAULT_LOCATION.timezone);
 }
 
 function renderBuienradarFramePosition(framePosition) {
@@ -4816,9 +4860,6 @@ function renderBuienradarFramePosition(framePosition) {
     buienradarNextLayerKey = undefined;
   }
 
-  const displayIndex = Math.round(framePosition);
-  const radarMode = getBuienradarRadarMode(loadedBuienradarRadarModeId);
-  return new Date(buienradarStartDate.getTime() + displayIndex * radarMode.frameMinutes * 60 * 1000);
 }
 
 function setKnmiFramePosition(value) {
@@ -4927,7 +4968,11 @@ function shouldUseKnmiForHybridDate(date) {
 }
 
 function isRadarSliderAtStart(value) {
-  return Math.abs(Number(value) || 0) < 0.5;
+  return Math.abs((Number(value) || 0) - getRadarSliderMin()) < 0.5;
+}
+
+function getRadarSliderMin() {
+  return Number(elements.radarSlider.min) || 0;
 }
 
 function setRainForecastBadgeText(text, date, timezone = selectedLocation.timezone, { isCurrentPosition = false } = {}) {
@@ -5008,11 +5053,12 @@ function getRadarSliderProgressForDate(date, range = getRadarTimeRange()) {
     return 0;
   }
 
+  const minValue = getRadarSliderMin();
   const maxValue = Number(elements.radarSlider.max) || 0;
-  if (maxValue > 0) {
+  if (maxValue > minValue) {
     const sliderValue = getRadarSliderValueForDate(date);
     if (Number.isFinite(sliderValue)) {
-      return clampNumber(sliderValue / maxValue, 0, 1);
+      return clampNumber((sliderValue - minValue) / (maxValue - minValue), 0, 1);
     }
   }
 
@@ -5054,26 +5100,27 @@ function getRadarSliderValueForDate(date) {
 }
 
 function getRadarTimeRange() {
+  const minValue = getRadarSliderMin();
   const maxValue = Number(elements.radarSlider.max) || 0;
   if (displayedRadarSource === "hybrid") {
-    const hybridStart = getHybridDateForSlider(0);
+    const hybridStart = getHybridDateForSlider(minValue);
     const hybridEnd = getHybridDateForSlider(maxValue);
     return hybridStart && hybridEnd ? { start: hybridStart, end: hybridEnd } : undefined;
   }
 
   if (displayedRadarSource === "knmi") {
-    const knmiStart = getKnmiDateForSlider(0);
+    const knmiStart = getKnmiDateForSlider(minValue);
     const knmiEnd = getKnmiDateForSlider(maxValue);
     return knmiStart && knmiEnd ? { start: knmiStart, end: knmiEnd } : undefined;
   }
 
-  const buienradarStart = getBuienradarDateForSlider(0, true);
-  const buienradarEnd = getBuienradarDateForSlider(maxValue, true);
+  const buienradarStart = getBuienradarDateForSlider(minValue);
+  const buienradarEnd = getBuienradarDateForSlider(maxValue);
   if (buienradarStart && buienradarEnd) {
     return { start: buienradarStart, end: buienradarEnd };
   }
 
-  const libreStart = getLibreWxrDateForSlider(0);
+  const libreStart = getLibreWxrDateForSlider(minValue);
   const libreEnd = getLibreWxrDateForSlider(maxValue);
   return libreStart && libreEnd ? { start: libreStart, end: libreEnd } : undefined;
 }
