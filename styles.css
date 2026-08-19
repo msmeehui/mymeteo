@@ -170,10 +170,26 @@ input {
   cursor: pointer;
 }
 
-.location-option:hover,
 .location-option:focus {
   outline: 0;
   background: rgb(47 127 159 / 0.11);
+}
+
+.location-option.is-active,
+.location-option[aria-selected="true"] {
+  background: rgb(47 127 159 / 0.16);
+  box-shadow: inset 3px 0 0 rgb(47 127 159 / 0.78);
+}
+
+@media (forced-colors: active) {
+  .location-option.is-active,
+  .location-option[aria-selected="true"] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+    background: Highlight;
+    color: HighlightText;
+    box-shadow: none;
+  }
 }
 
 .location-input:focus {

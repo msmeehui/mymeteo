@@ -1,5 +1,7 @@
 {
   "scripts": {
+    "test": "npm run test:outfits && npm run test:loading",
+    "test:loading": "node tools/test-loading-races.mjs",
     "test:outfits": "node tools/test-outfit-states.mjs"
   },
   "devDependencies": {

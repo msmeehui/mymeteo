@@ -1,6 +1,6 @@
 # MyMeteo Project Context
 
-Last updated: 2026-07-05
+Last updated: 2026-08-19
 
 This file is the shared product memory for MyMeteo. Read it before discussing or changing the app in a new Codex chat. It summarizes the decisions, trade-offs, and design philosophy that emerged from the MyMeteo development chats, the app changelog, the README, git history, and the current implementation.
 
@@ -103,6 +103,10 @@ The Today weather card also has a hidden Easter egg: clicking or tapping the lar
 
 The weather card should not wait for slower radar graphics if forecast/current weather data is already available. The card should show its main contents early, while radar-loading status belongs in the map/status area. This keeps the first load from feeling unnecessarily blocked.
 
+Location search and the current-location control should remain usable while weather or radar data is loading. A new location choice supersedes older in-flight work, and stale responses must not change the visible location, forecast, radar, status, or loading state. Only the current-location control itself is temporarily unavailable while the browser is actively determining the position.
+
+Render the base Open-Meteo forecast as soon as it arrives, then enrich the already-visible forecast when KNMI/Buienradar point and image rain signals become available. When changing location, use the existing stable weather-card shell as a short updating state rather than showing the previous location's weather under the new location name. Reuse fresh regional radar frames when they remain valid for the newly selected location.
+
 ### Keep The Weather Card Calm
 
 The Today weather card should feel visually stable while the slider moves. Contents may change, but columns, slider width, and important alignments should not jump around.
@@ -171,6 +175,8 @@ The app supports city/place search and browser current-location permission. Curr
 First-time visitors default to Amsterdam when there is no saved browser location yet. After a user chooses a location, the app stores that choice locally and starts there next time.
 
 Location search should work well on iPhone Safari. The native datalist was replaced with a custom suggestions menu because browser-controlled popovers could cover the text box. The suggestion list should be readable from the first one or two typed characters, not only after the input gets wider.
+
+Treat location suggestions as an editable combobox: visually activate the first result, let arrow keys move through results while focus and typed text stay in the input, and commit only with Enter or an explicit pointer/touch choice. Escape and Tab should dismiss without changing location.
 
 The current-location button should stay visually associated with the location name. It should not float far away for short names like Paris, overlap longer names like Current location, or cause placeholder text such as Search location to be clipped. Clicking the location field should make it easy to replace the current label.
 

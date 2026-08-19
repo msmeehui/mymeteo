@@ -735,12 +735,19 @@ let radarFrames = [];
 let locationSearchResults = [];
 let locationSearchTimer;
 let locationSearchAbortController;
+let locationSearchRequestId = 0;
+let locationSearchResultSetId = 0;
+let activeLocationOptionIndex = -1;
+let areLocationOptionsDismissed = false;
+let isLocationInputComposing = false;
 let sliderTimestampTimer;
 let precipitationTimelineRange;
 let precipitationTimelineSamples = [];
 let hourlyForecastLayoutFrame;
 let buienradarPreloadTimer;
 let weatherData;
+let weatherDataLocationKey;
+let weatherDataLoadRequestId;
 let activeRadarDate;
 let activeMobileView = "rain";
 let activeRainSourceMode = isRainSourceCompareEnabled ? "compare" : "current";
@@ -759,12 +766,19 @@ let expandedForecastDayKey;
 let selectedLocation = loadStoredLocation() || DEFAULT_LOCATION;
 let currentLocationRefreshState = isCurrentLocation(selectedLocation) ? "stale" : "idle";
 let currentLocationRefreshPromise;
+let locationIntentId = 0;
+let currentLocationRequestId = 0;
+let currentLocationStatusOwner;
 let lastCurrentLocationRefreshAttemptAt = 0;
 let statusMessage = elements.updatedAt.textContent || "Loading forecast...";
 let statusTitle = elements.updatedAt.title || "";
 let statusIsError = elements.updatedAt.classList.contains("error");
+let statusMessageRevision = 0;
 let refreshTimer;
 let radarSliderWasAtStart = true;
+let dataLoadRequestId = 0;
+let activeForecastAbortController;
+let radarLoadRequestId = 0;
 
 function init() {
   if (window.lucide) {
@@ -786,30 +800,37 @@ function init() {
 function bindEvents() {
   elements.locationForm.addEventListener("submit", (event) => {
     event.preventDefault();
+    if (isLocationInputComposing) {
+      return;
+    }
     selectTypedLocation();
   });
   elements.locationInput.addEventListener("input", handleLocationInput);
-  elements.locationInput.addEventListener("change", selectMatchingLocation);
+  elements.locationInput.addEventListener("compositionstart", () => {
+    isLocationInputComposing = true;
+  });
+  elements.locationInput.addEventListener("compositionend", () => {
+    isLocationInputComposing = false;
+    handleLocationInput();
+  });
   elements.locationInput.addEventListener("focus", () => {
     selectLocationInputText();
     if (locationSearchResults.length) {
+      areLocationOptionsDismissed = false;
+      activeLocationOptionIndex = 0;
       renderLocationOptions();
     }
   });
-  elements.locationInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      selectTypedLocation();
-    } else if (event.key === "Escape") {
-      hideLocationOptions();
-    }
-  });
+  elements.locationInput.addEventListener("keydown", handleLocationInputKeydown);
   document.addEventListener("click", (event) => {
     if (!elements.locationForm.contains(event.target)) {
       hideLocationOptions();
     }
   });
-  elements.locateButton.addEventListener("click", useCurrentLocation);
+  elements.locateButton.addEventListener("click", () => {
+    hideLocationOptions();
+    useCurrentLocation();
+  });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
       refreshCurrentLocationOnResume();
@@ -937,12 +958,16 @@ function renderLocation() {
   const displayName = getLocationDisplayName(selectedLocation);
   elements.locationInput.value = displayName;
   elements.locationInput.title = getLocationTitle(selectedLocation);
-  const locateButtonLabel = getLocateButtonLabel();
-  elements.locateButton.setAttribute("aria-label", locateButtonLabel);
-  elements.locateButton.title = locateButtonLabel;
+  updateLocateButtonLabel();
   resizeLocationInput(displayName);
   renderStatusLine();
   document.title = "MyMeteo";
+}
+
+function updateLocateButtonLabel() {
+  const label = getLocateButtonLabel();
+  elements.locateButton.setAttribute("aria-label", label);
+  elements.locateButton.title = label;
 }
 
 function getLocationDisplayName(location) {
@@ -1046,10 +1071,38 @@ function isCompactLocationLabel() {
 }
 
 function setStatusMessage(message, { title = "", isError = false } = {}) {
+  statusMessageRevision += 1;
   statusMessage = message;
   statusTitle = title;
   statusIsError = isError;
   renderStatusLine();
+}
+
+function getForecastStatusRevision() {
+  if (currentLocationStatusOwner?.statusRevision === statusMessageRevision) {
+    return currentLocationStatusOwner.previousStatus.revision;
+  }
+
+  return statusMessageRevision;
+}
+
+function setForecastStatusMessage(context, message, { title = "", isError = false } = {}) {
+  if (
+    currentLocationStatusOwner?.statusRevision === statusMessageRevision
+    && context.statusRevision === currentLocationStatusOwner.previousStatus.revision
+  ) {
+    currentLocationStatusOwner.previousStatus = {
+      isError,
+      message,
+      revision: context.statusRevision,
+      title,
+    };
+    return;
+  }
+
+  if (context.statusRevision === statusMessageRevision) {
+    setStatusMessage(message, { title, isError });
+  }
 }
 
 function renderStatusLine() {
@@ -1339,19 +1392,57 @@ function updateMobileTabs() {
 }
 
 function handleLocationInput() {
+  beginManualLocationIntent();
   const query = elements.locationInput.value.trim();
-  window.clearTimeout(locationSearchTimer);
+  areLocationOptionsDismissed = false;
+  activeLocationOptionIndex = -1;
+  invalidateLocationSearch();
+  locationSearchResults = [];
+  renderLocationOptions();
   resizeLocationInput(elements.locationInput.value);
 
-  if (query.length < 2) {
-    locationSearchResults = [];
-    renderLocationOptions();
+  if (isLocationInputComposing || query.length < 2) {
     return;
   }
 
   locationSearchTimer = window.setTimeout(() => {
     searchLocationSuggestions(query);
   }, 220);
+}
+
+function handleLocationInputKeydown(event) {
+  if (event.isComposing || event.keyCode === 229 || isLocationInputComposing) {
+    return;
+  }
+
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    if (!locationSearchResults.length) {
+      return;
+    }
+
+    event.preventDefault();
+    if (elements.locationOptions.hidden) {
+      areLocationOptionsDismissed = false;
+      activeLocationOptionIndex = 0;
+      renderLocationOptions();
+      scrollActiveLocationOptionIntoView();
+      return;
+    }
+
+    const direction = event.key === "ArrowDown" ? 1 : -1;
+    setActiveLocationOption(activeLocationOptionIndex + direction, { scrollIntoView: true });
+    return;
+  }
+
+  if (event.key === "Enter") {
+    event.preventDefault();
+    selectTypedLocation();
+  } else if (event.key === "Escape") {
+    event.preventDefault();
+    hideLocationOptions();
+  } else if (event.key === "Tab") {
+    hideLocationOptions();
+  }
 }
 
 function resizeLocationInput(value) {
@@ -1389,20 +1480,11 @@ function selectLocationInputText() {
   });
 }
 
-function selectMatchingLocation() {
-  const typedValue = elements.locationInput.value.trim();
-  if (typedValue === getLocationDisplayName(selectedLocation)) {
+async function selectTypedLocation() {
+  if (commitActiveLocationOption()) {
     return;
   }
 
-  const match = locationSearchResults.find((result) => formatLocationResult(result) === typedValue);
-
-  if (match) {
-    applyLocation(locationFromResult(match), "location_search");
-  }
-}
-
-async function selectTypedLocation() {
   const typedValue = elements.locationInput.value.trim();
 
   if (typedValue === getLocationDisplayName(selectedLocation)) {
@@ -1415,27 +1497,31 @@ async function selectTypedLocation() {
     return;
   }
 
+  const intentId = beginManualLocationIntent();
   const exactMatch = locationSearchResults.find((result) => formatLocationResult(result) === typedValue);
   if (exactMatch) {
-    applyLocation(locationFromResult(exactMatch), "location_search");
+    applyLocation(locationFromResult(exactMatch), "location_search", { intentId });
     return;
   }
 
   window.clearTimeout(locationSearchTimer);
   const results = await searchLocationSuggestions(typedValue);
+  if (!isCurrentLocationIntent(intentId) || elements.locationInput.value.trim() !== typedValue) {
+    return;
+  }
+
   if (results[0]) {
-    applyLocation(locationFromResult(results[0]), "location_search");
+    applyLocation(locationFromResult(results[0]), "location_search", { intentId });
   } else {
     setStatusMessage("Location not found", { isError: true });
   }
 }
 
 async function searchLocationSuggestions(query) {
-  if (locationSearchAbortController) {
-    locationSearchAbortController.abort();
-  }
-
-  locationSearchAbortController = new AbortController();
+  invalidateLocationSearch();
+  const requestId = locationSearchRequestId;
+  const controller = new AbortController();
+  locationSearchAbortController = controller;
   const params = new URLSearchParams({
     name: query,
     count: "8",
@@ -1445,14 +1531,24 @@ async function searchLocationSuggestions(query) {
 
   try {
     const response = await fetch(`https://geocoding-api.open-meteo.com/v1/search?${params}`, {
-      signal: locationSearchAbortController.signal,
+      signal: controller.signal,
     });
     if (!response.ok) {
       throw new Error(`Open-Meteo geocoding responded with ${response.status}`);
     }
 
     const data = await response.json();
+    if (
+      requestId !== locationSearchRequestId
+      || controller !== locationSearchAbortController
+      || elements.locationInput.value.trim() !== query
+    ) {
+      return [];
+    }
+
     locationSearchResults = data.results || [];
+    locationSearchResultSetId = requestId;
+    activeLocationOptionIndex = locationSearchResults.length && !areLocationOptionsDismissed ? 0 : -1;
     renderLocationOptions();
     return locationSearchResults;
   } catch (error) {
@@ -1460,33 +1556,145 @@ async function searchLocationSuggestions(query) {
       console.error(error);
     }
     return [];
+  } finally {
+    if (controller === locationSearchAbortController) {
+      locationSearchAbortController = undefined;
+    }
   }
 }
 
+function invalidateLocationSearch() {
+  window.clearTimeout(locationSearchTimer);
+  locationSearchTimer = undefined;
+  locationSearchRequestId += 1;
+  if (locationSearchAbortController) {
+    locationSearchAbortController.abort();
+    locationSearchAbortController = undefined;
+  }
+}
+
+function beginLocationIntent() {
+  locationIntentId += 1;
+  return locationIntentId;
+}
+
+function beginManualLocationIntent() {
+  const intentId = beginLocationIntent();
+  if (currentLocationRefreshState === "refreshing") {
+    currentLocationRefreshState = isCurrentLocation(selectedLocation) ? "stale" : "idle";
+    updateLocateButtonLabel();
+    restoreCurrentLocationOwnedStatus();
+  }
+  return intentId;
+}
+
+function isCurrentLocationIntent(intentId) {
+  return intentId === locationIntentId;
+}
+
 function renderLocationOptions() {
-  elements.locationInput.setAttribute("aria-expanded", String(locationSearchResults.length > 0));
-  elements.locationOptions.hidden = locationSearchResults.length === 0;
+  const shouldShowOptions = locationSearchResults.length > 0 && !areLocationOptionsDismissed;
+  elements.locationInput.setAttribute("aria-expanded", String(shouldShowOptions));
+  elements.locationOptions.hidden = !shouldShowOptions;
+
+  if (!shouldShowOptions) {
+    elements.locationInput.removeAttribute("aria-activedescendant");
+    elements.locationOptions.replaceChildren();
+    return;
+  }
+
+  if (activeLocationOptionIndex < 0 || activeLocationOptionIndex >= locationSearchResults.length) {
+    activeLocationOptionIndex = 0;
+  }
+
   elements.locationOptions.replaceChildren(
     ...locationSearchResults.map((result, index) => {
       const item = document.createElement("li");
-      const option = document.createElement("button");
-      option.className = "location-option";
-      option.type = "button";
-      option.role = "option";
-      option.id = `location-option-${index}`;
-      option.textContent = formatLocationResult(result);
-      option.addEventListener("click", () => {
-        applyLocation(locationFromResult(result), "location_search");
+      item.className = "location-option";
+      item.id = `location-option-${locationSearchResultSetId}-${index}`;
+      item.textContent = formatLocationResult(result);
+      item.setAttribute("role", "option");
+      item.addEventListener("pointermove", (event) => {
+        if (event.pointerType === "mouse" && index !== activeLocationOptionIndex) {
+          setActiveLocationOption(index);
+        }
       });
-      item.appendChild(option);
+      item.addEventListener("mousedown", (event) => {
+        if (event.button === 0) {
+          event.preventDefault();
+        }
+      });
+      item.addEventListener("click", () => {
+        commitLocationOption(index);
+      });
       return item;
     }),
   );
+  syncActiveLocationOption();
+}
+
+function setActiveLocationOption(index, { scrollIntoView = false } = {}) {
+  if (!locationSearchResults.length || elements.locationOptions.hidden) {
+    activeLocationOptionIndex = -1;
+    syncActiveLocationOption();
+    return;
+  }
+
+  activeLocationOptionIndex = Math.min(
+    Math.max(index, 0),
+    locationSearchResults.length - 1,
+  );
+  syncActiveLocationOption();
+  if (scrollIntoView) {
+    scrollActiveLocationOptionIntoView();
+  }
+}
+
+function syncActiveLocationOption() {
+  const optionElements = Array.from(elements.locationOptions.querySelectorAll('[role="option"]'));
+  optionElements.forEach((option, index) => {
+    const isActive = index === activeLocationOptionIndex;
+    option.classList.toggle("is-active", isActive);
+    option.setAttribute("aria-selected", String(isActive));
+  });
+
+  const activeOption = optionElements[activeLocationOptionIndex];
+  if (activeOption && !elements.locationOptions.hidden) {
+    elements.locationInput.setAttribute("aria-activedescendant", activeOption.id);
+  } else {
+    elements.locationInput.removeAttribute("aria-activedescendant");
+  }
+}
+
+function scrollActiveLocationOptionIntoView() {
+  const activeOption = elements.locationOptions.querySelector('[aria-selected="true"]');
+  activeOption?.scrollIntoView({ block: "nearest" });
+}
+
+function commitActiveLocationOption() {
+  if (elements.locationOptions.hidden || activeLocationOptionIndex < 0) {
+    return false;
+  }
+
+  return commitLocationOption(activeLocationOptionIndex);
+}
+
+function commitLocationOption(index) {
+  const result = locationSearchResults[index];
+  if (!result) {
+    return false;
+  }
+
+  locationSearchResults = [];
+  hideLocationOptions();
+  applyLocation(locationFromResult(result), "location_search");
+  return true;
 }
 
 function hideLocationOptions() {
-  elements.locationInput.setAttribute("aria-expanded", "false");
-  elements.locationOptions.hidden = true;
+  areLocationOptionsDismissed = true;
+  activeLocationOptionIndex = -1;
+  renderLocationOptions();
 }
 
 function formatLocationResult(result) {
@@ -1511,12 +1719,13 @@ async function useCurrentLocation() {
 }
 
 async function loadInitialWeather() {
+  const loadRequestIdBeforeLocationRefresh = dataLoadRequestId;
   const didAttemptCurrentLocationRefresh = await refreshCurrentLocationIfAllowed({
     analyticsEventName: "current_location_auto_refreshed",
     loadWeatherOnFailure: true,
   });
 
-  if (!didAttemptCurrentLocationRefresh) {
+  if (!didAttemptCurrentLocationRefresh && dataLoadRequestId === loadRequestIdBeforeLocationRefresh) {
     loadAll();
   }
 }
@@ -1540,13 +1749,25 @@ async function refreshCurrentLocationIfAllowed({ analyticsEventName, loadWeather
     return false;
   }
 
+  const intentId = locationIntentId;
+  const locationKey = getBuienradarSampleLocationKey(selectedLocation);
   const permissionState = await getGeolocationPermissionState();
+  if (
+    !isCurrentLocationIntent(intentId)
+    || !isCurrentLocation(selectedLocation)
+    || locationKey !== getBuienradarSampleLocationKey(selectedLocation)
+    || currentLocationRefreshPromise
+  ) {
+    return false;
+  }
+
   if (permissionState !== "granted") {
     currentLocationRefreshState = "stale";
     renderLocation();
     return false;
   }
 
+  const loadRequestIdBeforeRefresh = dataLoadRequestId;
   currentLocationRefreshPromise = requestCurrentLocation({
     analyticsEventName,
     isAutoRefresh: true,
@@ -1555,7 +1776,10 @@ async function refreshCurrentLocationIfAllowed({ analyticsEventName, loadWeather
     currentLocationRefreshPromise = undefined;
   });
 
-  await currentLocationRefreshPromise;
+  const didRefresh = await currentLocationRefreshPromise;
+  if (!didRefresh && loadWeatherOnFailure && dataLoadRequestId === loadRequestIdBeforeRefresh) {
+    loadAll();
+  }
   return true;
 }
 
@@ -1570,11 +1794,25 @@ async function requestCurrentLocation({ analyticsEventName, isAutoRefresh = fals
     return false;
   }
 
+  const intentId = beginLocationIntent();
+  const requestId = currentLocationRequestId + 1;
+  currentLocationRequestId = requestId;
+  const previousStatus = {
+    isError: statusIsError,
+    message: statusMessage,
+    revision: statusMessageRevision,
+    title: statusTitle,
+  };
   lastCurrentLocationRefreshAttemptAt = Date.now();
   currentLocationRefreshState = "refreshing";
   renderLocation();
   setStatusMessage(isAutoRefresh ? "Updating current location..." : "Locating...");
-  elements.locateButton.disabled = true;
+  currentLocationStatusOwner = {
+    previousStatus,
+    requestId,
+    statusRevision: statusMessageRevision,
+  };
+  setCurrentLocationRequestPending(true);
 
   try {
     const position = await getCurrentPosition({
@@ -1582,14 +1820,28 @@ async function requestCurrentLocation({ analyticsEventName, isAutoRefresh = fals
       maximumAge: 5 * 60 * 1000,
       timeout: 10 * 1000,
     });
+    if (!isCurrentLocationIntent(intentId)) {
+      return false;
+    }
+
     const location = await currentLocationFromPosition(position);
+    if (!isCurrentLocationIntent(intentId)) {
+      return false;
+    }
+
     currentLocationRefreshState = "verified";
-    applyLocation(location, analyticsEventName);
+    clearCurrentLocationStatusOwner(requestId);
+    applyLocation(location, analyticsEventName, { intentId });
     return true;
   } catch (error) {
+    if (!isCurrentLocationIntent(intentId)) {
+      return false;
+    }
+
     console.error(error);
     currentLocationRefreshState = isCurrentLocation(selectedLocation) ? "stale" : "idle";
     renderLocation();
+    clearCurrentLocationStatusOwner(requestId);
     setCurrentLocationErrorMessage(getGeolocationErrorMessage(error));
 
     if (loadWeatherOnFailure) {
@@ -1598,10 +1850,39 @@ async function requestCurrentLocation({ analyticsEventName, isAutoRefresh = fals
 
     return false;
   } finally {
-    if (!elements.app.classList.contains("is-loading")) {
-      elements.locateButton.disabled = false;
+    if (requestId === currentLocationRequestId) {
+      setCurrentLocationRequestPending(false);
     }
   }
+}
+
+function setCurrentLocationRequestPending(isPending) {
+  elements.locateButton.disabled = isPending;
+  elements.locateButton.toggleAttribute("aria-busy", isPending);
+  if (!isPending) {
+    updateLocateButtonLabel();
+  }
+}
+
+function clearCurrentLocationStatusOwner(requestId) {
+  if (currentLocationStatusOwner?.requestId === requestId) {
+    currentLocationStatusOwner = undefined;
+  }
+}
+
+function restoreCurrentLocationOwnedStatus() {
+  const owner = currentLocationStatusOwner;
+  currentLocationStatusOwner = undefined;
+  if (!owner || owner.statusRevision !== statusMessageRevision) {
+    renderStatusLine();
+    return;
+  }
+
+  statusMessage = owner.previousStatus.message;
+  statusTitle = owner.previousStatus.title;
+  statusIsError = owner.previousStatus.isError;
+  statusMessageRevision = owner.previousStatus.revision;
+  renderStatusLine();
 }
 
 function getCurrentPosition(options) {
@@ -1670,12 +1951,17 @@ async function hydrateStoredCurrentLocationName() {
   }
 
   const originalLocation = selectedLocation;
+  const intentId = locationIntentId;
   const place = await reverseGeocodeLocation(originalLocation).catch((error) => {
     console.warn("Could not name stored current location.", error);
     return null;
   });
 
-  if (!place || selectedLocation !== originalLocation) {
+  if (
+    !place
+    || selectedLocation !== originalLocation
+    || !isCurrentLocationIntent(intentId)
+  ) {
     return;
   }
 
@@ -1763,20 +2049,95 @@ function degreesToRadians(degrees) {
   return degrees * Math.PI / 180;
 }
 
-function applyLocation(location, analyticsEventName) {
+function applyLocation(location, analyticsEventName, { intentId = beginManualLocationIntent() } = {}) {
+  if (!isCurrentLocationIntent(intentId)) {
+    return false;
+  }
+
   if (analyticsEventName) {
     trackAnalyticsEvent(analyticsEventName);
   }
 
+  const previousLocation = selectedLocation;
   const nextLocation = normalizeLocation(location);
   currentLocationRefreshState = isCurrentLocation(nextLocation) ? currentLocationRefreshState : "idle";
   selectedLocation = nextLocation;
   activeOutfitSceneId = undefined;
+  invalidateLocationSearch();
+  locationSearchResults = [];
   saveLocation(selectedLocation);
   hideLocationOptions();
+  renderWeatherLoadingState();
+  if (isInBuienradarBounds(previousLocation) !== isInBuienradarBounds(selectedLocation)) {
+    resetRadarDisplayForLocationChange();
+  }
   renderLocation();
   updateMapLocation();
-  loadAll();
+  loadAll({ forceRadarRefresh: false });
+  return true;
+}
+
+function renderWeatherLoadingState() {
+  weatherData = undefined;
+  weatherDataLocationKey = undefined;
+  weatherDataLoadRequestId = undefined;
+  window.clearTimeout(knmiPointRainRenderTimer);
+  knmiPointRainRenderTimer = undefined;
+  elements.nowPanel.setAttribute("aria-busy", "true");
+  elements.conditionLabel.textContent = "Checking the sky";
+  const loadingCondition = getCondition(2, true);
+  renderConditionIcon(loadingCondition);
+  document.querySelector(".condition-mark").title = "Weather updating";
+  renderTemperatureAndWind({});
+  renderCurrentTemperatureRange(buildTemperatureRange(undefined, undefined, "restOfDay"));
+  renderCurrentPrecipitation({
+    ariaLabel: "Rain chance unavailable",
+    chance: undefined,
+    label: "Rain",
+    scopeLabel: "Rest of day",
+    value: "--%",
+  });
+  elements.forecastPrecipHeader.textContent = "Rain";
+  elements.forecastBody.innerHTML = '<tr><td class="forecast-empty" colspan="5">Updating forecast...</td></tr>';
+  elements.outfitScene.hidden = true;
+  hidePrecipitationTimeline();
+  renderRainSourceDebugPanel();
+
+  const sliderStart = getRadarSliderMin();
+  elements.radarSlider.value = String(sliderStart);
+  radarSliderWasAtStart = true;
+  if (!elements.radarSlider.disabled) {
+    handleRadarSliderInput(sliderStart);
+  } else {
+    setActiveRadarDate(undefined);
+    setRainForecastBadgeCurrent();
+  }
+}
+
+function resetRadarDisplayForLocationChange() {
+  radarLoadRequestId += 1;
+  buienradarDisplayRequestId += 1;
+  knmiDisplayRequestId += 1;
+  isBuienradarRadarModeLoading = false;
+  setRefreshButtonWorking(false);
+  clearLibreWxrRadar();
+  clearBuienradarLayers();
+  clearKnmiLayers();
+  radarFrames = [];
+  displayedRadarSource = "none";
+  resetHybridRadarRange();
+  elements.radarPanel.classList.remove("is-animated");
+  elements.radarSlider.disabled = true;
+  elements.radarSlider.min = "0";
+  elements.radarSlider.max = "0";
+  elements.radarSlider.value = "0";
+  radarSliderWasAtStart = true;
+  setActiveRadarDate(undefined);
+  elements.radarTime.textContent = "Loading...";
+  elements.radarTime.classList.remove("error");
+  setRadarMapStatus("Loading rain forecast...");
+  updateSliderTimestamps();
+  updateBuienradarModeControl();
 }
 
 function updateMapLocation() {
@@ -1813,28 +2174,62 @@ function centerMapOnSelectedLocation() {
   });
 }
 
-async function loadAll() {
-  setLoading(true);
-  setStatusMessage("Refreshing...");
-  await Promise.all([loadWeather(), loadRadar()]);
-  setLoading(false);
+function createDataLoadContext({ forceRadarRefresh = true } = {}) {
+  const requestId = dataLoadRequestId + 1;
+  const location = { ...selectedLocation };
+  dataLoadRequestId = requestId;
+  return {
+    requestId,
+    location,
+    locationKey: getBuienradarSampleLocationKey(location),
+    forceRadarRefresh,
+    statusRevision: getForecastStatusRevision(),
+  };
 }
 
-async function loadWeather() {
-  const requestLocation = selectedLocation;
-  const requestLocationKey = getBuienradarSampleLocationKey(requestLocation);
+function isDataLoadContextCurrent(context) {
+  return Boolean(
+    context
+    && context.requestId === dataLoadRequestId
+    && context.locationKey === getBuienradarSampleLocationKey(selectedLocation),
+  );
+}
+
+async function loadAll(options = {}) {
+  const context = createDataLoadContext(options);
+  if (activeForecastAbortController) {
+    activeForecastAbortController.abort();
+  }
+  activeForecastAbortController = new AbortController();
+  context.signal = activeForecastAbortController.signal;
+  setLoading(true);
+  if (currentLocationRefreshState !== "refreshing") {
+    setStatusMessage("Refreshing...");
+  }
+  context.statusRevision = getForecastStatusRevision();
+
+  try {
+    await Promise.allSettled([
+      loadWeather(context),
+      loadRadar({ forceRefresh: context.forceRadarRefresh }),
+    ]);
+  } finally {
+    if (isDataLoadContextCurrent(context)) {
+      activeForecastAbortController = undefined;
+      setLoading(false);
+    }
+  }
+}
+
+async function loadWeather(context) {
+  const requestLocation = context.location;
+  const requestLocationKey = context.locationKey;
   const pointRainPromise = prepareBuienradarPointRainForLocation(requestLocation).catch((error) => {
     console.warn("Could not load Buienradar point rain data.", error);
   });
-  prepareKnmiPointRainForLocation(requestLocation)
-    .then(() => {
-      if (getBuienradarSampleLocationKey(selectedLocation) === requestLocationKey) {
-        renderWeatherForRadarBlend();
-      }
-    })
-    .catch((error) => {
-      console.warn("Could not load KNMI point rain data.", error);
-    });
+  const knmiPointRainPromise = prepareKnmiPointRainForLocation(requestLocation).catch((error) => {
+    console.warn("Could not load KNMI point rain data.", error);
+  });
   const params = new URLSearchParams({
     latitude: requestLocation.lat,
     longitude: requestLocation.lon,
@@ -1885,29 +2280,47 @@ async function loadWeather() {
   });
 
   try {
-    const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`);
+    const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`, {
+      signal: context.signal,
+    });
     if (!response.ok) {
       throw new Error(`Open-Meteo responded with ${response.status}`);
     }
 
     const data = await response.json();
-    await pointRainPromise;
-    if (getBuienradarSampleLocationKey(selectedLocation) !== requestLocationKey) {
+    if (!isDataLoadContextCurrent(context)) {
       return;
     }
 
-    renderWeather(data);
+    renderWeather(data, context);
+    const renderEnrichedWeather = () => {
+      renderWeatherForRadarBlend(requestLocationKey, context.requestId);
+    };
+    pointRainPromise.then(renderEnrichedWeather);
+    knmiPointRainPromise.then(renderEnrichedWeather);
   } catch (error) {
+    if (error?.name === "AbortError" || !isDataLoadContextCurrent(context)) {
+      return;
+    }
+
     console.error(error);
-    setStatusMessage("Forecast unavailable", { isError: true });
+    elements.nowPanel.removeAttribute("aria-busy");
+    setForecastStatusMessage(context, "Forecast unavailable", { isError: true });
     renderFiveDayForecast();
   }
 }
 
-function renderWeather(data) {
+function renderWeather(data, context) {
+  if (!isDataLoadContextCurrent(context)) {
+    return;
+  }
+
   weatherData = data;
+  weatherDataLocationKey = context.locationKey;
+  weatherDataLoadRequestId = context.requestId;
+  elements.nowPanel.removeAttribute("aria-busy");
   const current = data.current;
-  setStatusMessage(`Checked ${formatClock(new Date())}`, {
+  setForecastStatusMessage(context, `Checked ${formatClock(new Date())}`, {
     title: `Weather observation ${formatTime(current.time)}`,
   });
 
@@ -4089,6 +4502,9 @@ async function toggleBuienradarRadarMode(event) {
     return;
   }
 
+  radarLoadRequestId += 1;
+  const radarRequestId = radarLoadRequestId;
+  const locationKey = getBuienradarSampleLocationKey(selectedLocation);
   const nextModeId = getNextBuienradarRadarModeId(getDisplayedBuienradarRadarModeId());
   const cachedRadar = getFreshBuienradarRadarCache(nextModeId);
   activeBuienradarRadarModeId = nextModeId;
@@ -4110,18 +4526,31 @@ async function toggleBuienradarRadarMode(event) {
 
   try {
     const radar = await fetchBuienradarRadarMode(nextModeId);
-    if (requestId === buienradarDisplayRequestId && activeBuienradarRadarModeId === nextModeId && isInBuienradarBounds(selectedLocation)) {
+    if (
+      radarRequestId === radarLoadRequestId
+      && locationKey === getBuienradarSampleLocationKey(selectedLocation)
+      && requestId === buienradarDisplayRequestId
+      && activeBuienradarRadarModeId === nextModeId
+      && isInBuienradarBounds(selectedLocation)
+    ) {
       displayBuienradarModeRadar(radar);
       trackAnalyticsEvent(`radar_${nextModeId}`);
       scheduleInactiveBuienradarRadarPreload();
     }
   } catch (error) {
-    activeBuienradarRadarModeId = getDisplayedBuienradarRadarModeId();
-    console.warn(`Could not switch to the ${nextModeId} Buienradar mode.`, error);
+    if (
+      radarRequestId === radarLoadRequestId
+      && locationKey === getBuienradarSampleLocationKey(selectedLocation)
+    ) {
+      activeBuienradarRadarModeId = getDisplayedBuienradarRadarModeId();
+      console.warn(`Could not switch to the ${nextModeId} Buienradar mode.`, error);
+    }
   } finally {
-    isBuienradarRadarModeLoading = false;
-    setRefreshButtonWorking(false);
-    updateBuienradarModeControl();
+    if (radarRequestId === radarLoadRequestId) {
+      isBuienradarRadarModeLoading = false;
+      setRefreshButtonWorking(false);
+      updateBuienradarModeControl();
+    }
   }
 }
 
@@ -4171,62 +4600,125 @@ function displayBuienradarModeRadar(radar) {
   displayBuienradarRadar(radar);
 }
 
-async function loadRadar() {
+function createRadarLoadContext({ forceRefresh = true } = {}) {
+  const requestId = radarLoadRequestId + 1;
+  const location = { ...selectedLocation };
+  radarLoadRequestId = requestId;
+  if (isBuienradarRadarModeLoading) {
+    isBuienradarRadarModeLoading = false;
+    setRefreshButtonWorking(false);
+  }
+  return {
+    requestId,
+    location,
+    locationKey: getBuienradarSampleLocationKey(location),
+    isInNetherlandsRadarBounds: isInBuienradarBounds(location),
+    radarModeId: activeBuienradarRadarModeId,
+    rainSourceMode: activeRainSourceMode,
+    forceRefresh,
+  };
+}
+
+function isRadarLoadContextCurrent(context) {
+  return Boolean(
+    context
+    && context.requestId === radarLoadRequestId
+    && context.locationKey === getBuienradarSampleLocationKey(selectedLocation)
+    && context.radarModeId === activeBuienradarRadarModeId
+    && context.rainSourceMode === activeRainSourceMode,
+  );
+}
+
+async function loadRadar(options = {}) {
+  const context = createRadarLoadContext(options);
   setRadarMapStatus("Loading rain forecast...");
   updateBuienradarModeControl();
 
-  if (isInBuienradarBounds(selectedLocation)) {
-    if (isRainSourceCompareEnabled && activeRainSourceMode === "current") {
+  if (context.isInNetherlandsRadarBounds) {
+    if (isRainSourceCompareEnabled && context.rainSourceMode === "current") {
       try {
-        await loadBuienradarRadar();
+        await loadBuienradarRadar(context);
+        if (!isRadarLoadContextCurrent(context)) {
+          return;
+        }
         updateBuienradarModeControl();
         return;
       } catch (error) {
+        if (!isRadarLoadContextCurrent(context)) {
+          return;
+        }
         console.warn("Buienradar animation unavailable, falling back to LibreWXR tiles.", error);
       }
-    } else if (isRainSourceCompareEnabled && activeRainSourceMode === "knmi") {
+    } else if (isRainSourceCompareEnabled && context.rainSourceMode === "knmi") {
       try {
-        await loadKnmiRadar();
+        await loadKnmiRadar(context);
+        if (!isRadarLoadContextCurrent(context)) {
+          return;
+        }
         updateBuienradarModeControl();
         return;
       } catch (error) {
+        if (!isRadarLoadContextCurrent(context)) {
+          return;
+        }
         console.warn("KNMI radar unavailable, falling back to Buienradar animation.", error);
       }
     } else {
       try {
-        await loadHybridRadar();
+        await loadHybridRadar(context);
+        if (!isRadarLoadContextCurrent(context)) {
+          return;
+        }
         updateBuienradarModeControl();
         return;
       } catch (error) {
+        if (!isRadarLoadContextCurrent(context)) {
+          return;
+        }
         console.warn("KNMI radar unavailable, falling back to Buienradar animation.", error);
       }
     }
 
     try {
-      await loadBuienradarRadar();
+      await loadBuienradarRadar(context);
+      if (!isRadarLoadContextCurrent(context)) {
+        return;
+      }
       updateBuienradarModeControl();
       return;
     } catch (error) {
+      if (!isRadarLoadContextCurrent(context)) {
+        return;
+      }
       console.warn("Buienradar animation unavailable, falling back to LibreWXR tiles.", error);
     }
   }
 
   try {
-    await loadLibreWxrRadar();
+    await loadLibreWxrRadar(context);
   } catch (error) {
+    if (!isRadarLoadContextCurrent(context)) {
+      return;
+    }
     console.error(error);
     disableRadar("Radar unavailable");
   } finally {
-    updateBuienradarModeControl();
+    if (isRadarLoadContextCurrent(context)) {
+      updateBuienradarModeControl();
+    }
   }
 }
 
-async function loadBuienradarRadar() {
-  const radarModeId = activeBuienradarRadarModeId;
+async function loadBuienradarRadar(context) {
+  const radarModeId = context.radarModeId;
   const requestId = buienradarDisplayRequestId + 1;
   buienradarDisplayRequestId = requestId;
-  const radar = await fetchBuienradarRadarMode(radarModeId, { forceRefresh: true });
-  if (requestId !== buienradarDisplayRequestId || activeBuienradarRadarModeId !== radarModeId || !isInBuienradarBounds(selectedLocation)) {
+  const radar = await fetchBuienradarRadarMode(radarModeId, { forceRefresh: context.forceRefresh });
+  if (
+    !isRadarLoadContextCurrent(context)
+    || requestId !== buienradarDisplayRequestId
+    || activeBuienradarRadarModeId !== radarModeId
+  ) {
     return;
   }
 
@@ -4234,20 +4726,21 @@ async function loadBuienradarRadar() {
   scheduleInactiveBuienradarRadarPreload();
 }
 
-async function loadHybridRadar() {
-  const radarModeId = activeBuienradarRadarModeId;
+async function loadHybridRadar(context) {
+  const radarModeId = context.radarModeId;
   const knmiRequestId = knmiDisplayRequestId + 1;
   const buienradarRequestId = buienradarDisplayRequestId + 1;
   knmiDisplayRequestId = knmiRequestId;
   buienradarDisplayRequestId = buienradarRequestId;
 
   const [knmiResult, buienradarResult] = await Promise.allSettled([
-    fetchKnmiRadar({ forceRefresh: true }),
-    fetchBuienradarRadarMode(radarModeId, { forceRefresh: true }),
+    fetchKnmiRadar({ forceRefresh: context.forceRefresh }),
+    fetchBuienradarRadarMode(radarModeId, { forceRefresh: context.forceRefresh }),
   ]);
 
   if (
-    knmiRequestId !== knmiDisplayRequestId
+    !isRadarLoadContextCurrent(context)
+    || knmiRequestId !== knmiDisplayRequestId
     || buienradarRequestId !== buienradarDisplayRequestId
     || activeBuienradarRadarModeId !== radarModeId
     || !isKnmiPrimaryRadarModeActive()
@@ -4335,14 +4828,14 @@ async function downloadBuienradarRadarMode(radarModeId) {
   };
 }
 
-async function loadKnmiRadar() {
+async function loadKnmiRadar(context) {
   const requestId = knmiDisplayRequestId + 1;
   knmiDisplayRequestId = requestId;
-  const radar = await fetchKnmiRadar({ forceRefresh: true });
+  const radar = await fetchKnmiRadar({ forceRefresh: context.forceRefresh });
   if (
-    requestId !== knmiDisplayRequestId
+    !isRadarLoadContextCurrent(context)
+    || requestId !== knmiDisplayRequestId
     || activeRainSourceMode !== "knmi"
-    || !isInBuienradarBounds(selectedLocation)
   ) {
     return;
   }
@@ -4637,7 +5130,7 @@ function displayBuienradarRadar(radar) {
   }
 }
 
-async function loadLibreWxrRadar() {
+async function loadLibreWxrRadar(context) {
   const response = await fetch(libreWxrRadarUrl);
   if (!response.ok) {
     throw new Error(`Radar source responded with ${response.status}`);
@@ -4647,20 +5140,25 @@ async function loadLibreWxrRadar() {
   const past = data.radar?.past || [];
   const nowcast = data.radar?.nowcast || [];
   const currentFrame = past[past.length - 1];
-  radarFrames = [currentFrame, ...nowcast]
+  const nextRadarFrames = [currentFrame, ...nowcast]
     .filter(Boolean)
     .map((frame) => ({
       ...frame,
       host: data.host,
     }));
 
-  if (!radarFrames.length) {
+  if (!nextRadarFrames.length) {
     throw new Error("No radar frames available");
+  }
+
+  if (!isRadarLoadContextCurrent(context)) {
+    return;
   }
 
   clearLibreWxrRadar();
   clearBuienradarRadar();
   clearKnmiRadar();
+  radarFrames = nextRadarFrames;
   displayedRadarSource = "librewxr";
   const previousMin = getRadarSliderMin();
   const previousValue = Number(elements.radarSlider.value) || previousMin;
@@ -5449,7 +5947,7 @@ function prepareBuienradarRainSamples(radar) {
         maxLookaheadHours: buienradarBlendMaxLookaheadHours,
         samples,
       });
-      renderWeatherForRadarBlend();
+      renderWeatherForRadarBlend(locationKey);
     })
     .catch((error) => {
       console.warn("Could not sample Buienradar rain at the selected location.", error);
@@ -5497,7 +5995,7 @@ function prepareKnmiRainSamples(radar) {
         maxLookaheadHours: knmiRadarConfig.maxLookaheadHours,
         samples,
       };
-      renderWeatherForRadarBlend();
+      renderWeatherForRadarBlend(locationKey);
     })
     .catch((error) => {
       console.warn("Could not sample KNMI rain at the selected location.", error);
@@ -6180,7 +6678,7 @@ function scheduleKnmiPointRainRenderRefresh(locationKey) {
 
   knmiPointRainRenderTimer = window.setTimeout(() => {
     knmiPointRainRenderTimer = undefined;
-    renderWeatherForRadarBlend();
+    renderWeatherForRadarBlend(locationKey);
   }, knmiPointRainRenderDelayMs);
 }
 
@@ -6289,8 +6787,18 @@ function isFreshKnmiPointRainSeries(sampleSeries) {
   );
 }
 
-function renderWeatherForRadarBlend() {
-  if (!weatherData) {
+function renderWeatherForRadarBlend(
+  locationKey = getBuienradarSampleLocationKey(selectedLocation),
+  loadRequestId = weatherDataLoadRequestId,
+) {
+  const selectedLocationKey = getBuienradarSampleLocationKey(selectedLocation);
+  if (
+    !weatherData
+    || locationKey !== selectedLocationKey
+    || weatherDataLocationKey !== selectedLocationKey
+    || loadRequestId !== weatherDataLoadRequestId
+    || loadRequestId !== dataLoadRequestId
+  ) {
     return;
   }
 
@@ -7196,8 +7704,7 @@ function interpolateUnixTime(start, end, progress) {
 function setLoading(isLoading) {
   elements.app.classList.toggle("is-loading", isLoading);
   elements.refreshButton.disabled = isLoading;
-  elements.locationInput.disabled = isLoading;
-  elements.locateButton.disabled = isLoading;
+  elements.refreshButton.toggleAttribute("aria-busy", isLoading);
   elements.refreshButton.title = isLoading ? "Refreshing weather and radar data" : "Refresh weather and radar data";
 }
 
