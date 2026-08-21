@@ -18,6 +18,105 @@ function createDeferred() {
   return { promise, reject, resolve };
 }
 
+function createManualWindowTimers() {
+  let nextTimerId = 1;
+  const timers = new Map();
+
+  return {
+    clearTimeout(timerId) {
+      timers.delete(timerId);
+    },
+    get pendingCount() {
+      return timers.size;
+    },
+    runNext() {
+      const nextTimer = Array.from(timers.entries())
+        .sort(([, left], [, right]) => left.delayMs - right.delayMs)[0];
+      if (!nextTimer) {
+        throw new Error("No pending window timer");
+      }
+
+      const [timerId, timer] = nextTimer;
+      timers.delete(timerId);
+      timer.callback();
+      return timer.delayMs;
+    },
+    setTimeout(callback, delayMs = 0) {
+      const timerId = nextTimerId;
+      nextTimerId += 1;
+      timers.set(timerId, { callback, delayMs });
+      return timerId;
+    },
+  };
+}
+
+function createAbortableFetchStall({ bodyMethod, phase }) {
+  let abortCount = 0;
+  let bodyCalls = 0;
+  let signal;
+
+  const waitForAbort = () => new Promise((_, reject) => {
+    const rejectAbort = () => {
+      abortCount += 1;
+      const error = new Error("Aborted test request");
+      error.name = "AbortError";
+      reject(error);
+    };
+
+    if (signal.aborted) {
+      rejectAbort();
+      return;
+    }
+
+    signal.addEventListener("abort", rejectAbort, { once: true });
+  });
+
+  return {
+    get abortCount() {
+      return abortCount;
+    },
+    get bodyCalls() {
+      return bodyCalls;
+    },
+    fetch(_url, options) {
+      signal = options.signal;
+      if (phase === "headers") {
+        return waitForAbort();
+      }
+
+      return Promise.resolve({
+        ok: true,
+        [bodyMethod]() {
+          bodyCalls += 1;
+          return waitForAbort();
+        },
+      });
+    },
+    get signal() {
+      return signal;
+    },
+  };
+}
+
+function createManualClock(initialTimeMs = 0) {
+  let currentTimeMs = initialTimeMs;
+
+  return {
+    advance(durationMs) {
+      currentTimeMs += durationMs;
+    },
+    now() {
+      return currentTimeMs;
+    },
+  };
+}
+
+function getRadarTimingEvents(analyticsEvents) {
+  return analyticsEvents
+    .filter(([eventName]) => eventName === "radar_load_timing")
+    .map(([, metadata]) => ({ ...metadata }));
+}
+
 async function withTimeout(promise, label, timeoutMs = 750) {
   let timeout;
   try {
@@ -159,7 +258,7 @@ class ImageStub {
   }
 }
 
-function createHarness() {
+function createHarness({ analyticsEvents, hostname = "127.0.0.1", performanceNow, windowTimers } = {}) {
   const elementCache = new Map();
   const getElement = (selector) => {
     if (!elementCache.has(selector)) {
@@ -196,7 +295,7 @@ function createHarness() {
     addEventListener() {},
     cancelAnimationFrame() {},
     clearInterval,
-    clearTimeout,
+    clearTimeout: windowTimers?.clearTimeout ?? clearTimeout,
     dataLayer: [],
     getComputedStyle() {
       return {
@@ -217,7 +316,7 @@ function createHarness() {
       setItem() {},
     },
     location: {
-      hostname: "127.0.0.1",
+      hostname,
       origin: "http://127.0.0.1:4173",
       search: "",
     },
@@ -235,8 +334,13 @@ function createHarness() {
     setInterval() {
       return 1;
     },
-    setTimeout,
+    setTimeout: windowTimers?.setTimeout ?? setTimeout,
   };
+  if (analyticsEvents) {
+    windowStub.sa_event = (...args) => {
+      analyticsEvents.push(args);
+    };
+  }
 
   const context = {
     AbortController,
@@ -252,6 +356,9 @@ function createHarness() {
     navigator: {
       geolocation: {},
     },
+    performance: {
+      now: performanceNow ?? (() => Date.now()),
+    },
     window: windowStub,
   };
   windowStub.document = documentStub;
@@ -263,7 +370,44 @@ function createHarness() {
 globalThis.__mymeteoLoadingTest = {
   beginManualLocationIntent,
   createDataLoadContext,
+  createRadarFixtures(startTimeMs) {
+    const frameDurationMs = 5 * 60 * 1000;
+    const knmiStartDate = new Date(startTimeMs);
+    const buienradarStartDate = new Date(startTimeMs + frameDurationMs);
+    const knmiFrameDates = Array.from(
+      { length: 25 },
+      (_, index) => new Date(startTimeMs + index * frameDurationMs),
+    );
+
+    return {
+      buienradar: {
+        fetchedAt: Date.now(),
+        frameUrls: Array.from({ length: 36 }, (_, index) => "buienradar-" + index),
+        modeId: "3h",
+        startDate: buienradarStartDate,
+        timeline: {
+          frameCount: 36,
+          frameDurationMs: 1000,
+        },
+      },
+      knmi: {
+        fetchedAt: Date.now(),
+        frameDates: knmiFrameDates,
+        frameUrls: knmiFrameDates.map((_, index) => "knmi-" + index),
+        modeId: "knmi-2h",
+        referenceDate: knmiStartDate,
+        startDate: knmiStartDate,
+        timeline: {
+          frameCount: knmiFrameDates.length,
+          frameDurationMs: 1000,
+        },
+      },
+    };
+  },
   createRadarLoadContext,
+  displayHybridRadar,
+  displayKnmiRadar,
+  downloadKnmiRadarMetadataResponse,
   getLocationSearchResults() {
     return locationSearchResults;
   },
@@ -301,6 +445,26 @@ globalThis.__mymeteoLoadingTest = {
   getRadarState() {
     return { displayedRadarSource, radarFrames };
   },
+  getRadarMapStatus() {
+    return {
+      hidden: elements.radarMapStatus.hidden,
+      isError: elements.radarMapStatus.classList.contains("is-error"),
+      message: elements.radarMapStatus.textContent,
+    };
+  },
+  getRadarUiState() {
+    return {
+      activeTimeMs: activeRadarDate?.getTime(),
+      ariaValue: elements.radarSlider.getAttribute("aria-valuetext"),
+      radarTime: elements.radarTime.textContent,
+      sliderDisabled: elements.radarSlider.disabled,
+      sliderMax: Number(elements.radarSlider.max),
+      sliderMin: Number(elements.radarSlider.min),
+      sliderValue: Number(elements.radarSlider.value),
+      sliderWasAtStart: radarSliderWasAtStart,
+      source: displayedRadarSource,
+    };
+  },
   getSelectedLocationKey() {
     return getBuienradarSampleLocationKey(selectedLocation);
   },
@@ -313,6 +477,7 @@ globalThis.__mymeteoLoadingTest = {
   hydrateStoredCurrentLocationName,
   isRadarLoadContextCurrent,
   loadAll,
+  loadHybridRadar,
   loadLibreWxrRadar,
   loadRadar,
   loadWeather,
@@ -363,6 +528,33 @@ globalThis.__mymeteoLoadingTest = {
     loadWeather = weatherLoader;
     loadRadar = radarLoader;
   },
+  setHybridRadarDependencies({
+    fetchBuienradar,
+    fetchKnmi,
+    renderBuienradar,
+    renderHybrid,
+    renderKnmi,
+    schedulePreload,
+  }) {
+    if (fetchBuienradar) {
+      fetchBuienradarRadarMode = fetchBuienradar;
+    }
+    if (fetchKnmi) {
+      fetchKnmiRadar = fetchKnmi;
+    }
+    if (renderBuienradar) {
+      displayBuienradarRadar = renderBuienradar;
+    }
+    if (renderHybrid) {
+      displayHybridRadar = renderHybrid;
+    }
+    if (renderKnmi) {
+      displayKnmiRadar = renderKnmi;
+    }
+    if (schedulePreload) {
+      scheduleInactiveBuienradarRadarPreload = schedulePreload;
+    }
+  },
   setRadarState({ frames, source }) {
     radarFrames = frames;
     displayedRadarSource = source;
@@ -372,6 +564,50 @@ globalThis.__mymeteoLoadingTest = {
     loadLibreWxrRadar = libre;
     setRadarMapStatus = status;
     updateBuienradarModeControl = update;
+  },
+  setRadarSamplePreparers({ buienradar, knmi }) {
+    prepareBuienradarRainSamples = buienradar;
+    prepareKnmiRainSamples = knmi;
+  },
+  setRadarSliderSelection(value, { wasAtStart = false } = {}) {
+    radarSliderWasAtStart = wasAtStart;
+    handleRadarSliderInput(value);
+  },
+  stubRadarRenderingSideEffects({ preserveRadarStatus = false } = {}) {
+    clearBuienradarLayers = () => {};
+    clearKnmiLayers = () => {};
+    clearLibreWxrRadar = () => {};
+    if (!preserveRadarStatus) {
+      clearRadarMapStatus = () => {};
+    }
+    prepareBuienradarRainSamples = () => {};
+    prepareKnmiRainSamples = () => {};
+    refreshMapSize = () => {};
+    renderPrecipitationTimeline = () => {};
+    renderSelectedWeather = () => {};
+    updatePrecipitationTimelineMarker = () => {};
+    updateSliderTimestamps = () => {};
+    setBuienradarFramePosition = (value) => {
+      updateRadarTimeDisplay(
+        getBuienradarDateForSlider(value),
+        value,
+        DEFAULT_LOCATION.timezone,
+      );
+    };
+    setHybridRadarPosition = (value) => {
+      updateRadarTimeDisplay(
+        getHybridDateForSlider(value),
+        value,
+        DEFAULT_LOCATION.timezone,
+      );
+    };
+    setKnmiFramePosition = (value) => {
+      updateRadarTimeDisplay(
+        getKnmiDateForSlider(value),
+        value,
+        DEFAULT_LOCATION.timezone,
+      );
+    };
   },
   setSelectedLocation(location) {
     selectedLocation = normalizeLocation(location);
@@ -417,8 +653,9 @@ function forecastResponse(data) {
 }
 
 async function flushPromises() {
-  await Promise.resolve();
-  await Promise.resolve();
+  for (let index = 0; index < 6; index += 1) {
+    await Promise.resolve();
+  }
 }
 
 function createKeyEvent(key, options = {}) {
@@ -431,6 +668,68 @@ function createKeyEvent(key, options = {}) {
       this.defaultPrevented = true;
     },
     ...options,
+  };
+}
+
+function configureProgressiveRadarHarness(test, { buienradarRun, knmiRun }) {
+  const displays = [];
+  const fetches = [];
+  let preloadCalls = 0;
+
+  test.setHybridRadarDependencies({
+    fetchBuienradar(modeId, options) {
+      fetches.push({
+        forceRefresh: options.forceRefresh,
+        hasTiming: Boolean(options.timing),
+        modeId,
+        source: "buienradar",
+      });
+      return buienradarRun.promise;
+    },
+    fetchKnmi(options) {
+      fetches.push({
+        forceRefresh: options.forceRefresh,
+        hasTiming: Boolean(options.timing),
+        source: "knmi",
+      });
+      return knmiRun.promise;
+    },
+    renderBuienradar(radar, options) {
+      displays.push({
+        id: radar.id,
+        preserveSelection: options?.preserveSelection ?? false,
+        source: "buienradar",
+      });
+      test.setRadarState({ frames: [{ source: "buienradar" }], source: "buienradar" });
+    },
+    renderHybrid(knmiRadar, buienradarRadar, options) {
+      displays.push({
+        buienradarId: buienradarRadar.id,
+        knmiId: knmiRadar.id,
+        preserveSelection: options?.preserveSelection ?? false,
+        source: "hybrid",
+      });
+      test.setRadarState({ frames: [{ source: "hybrid" }], source: "hybrid" });
+    },
+    renderKnmi(radar, options) {
+      displays.push({
+        id: radar.id,
+        preserveSelection: options?.preserveSelection ?? false,
+        source: "knmi",
+      });
+      test.setRadarState({ frames: [{ source: "knmi" }], source: "knmi" });
+    },
+    schedulePreload() {
+      preloadCalls += 1;
+    },
+  });
+
+  return {
+    displays,
+    fetches,
+    get preloadCalls() {
+      return preloadCalls;
+    },
   };
 }
 
@@ -479,8 +778,8 @@ assert.match(indexSource, /aria-label="Location suggestions"/);
   assert.equal(weatherRuns[0].context.signal.aborted, true, "a newer forecast should abort the older fetch");
   assert.equal(weatherRuns[1].context.signal.aborted, false);
   assert.deepEqual(radarRuns.map(({ options }) => ({ ...options })), [
-    { forceRefresh: true },
-    { forceRefresh: false },
+    { forceRefresh: true, trigger: "other" },
+    { forceRefresh: false, trigger: "other" },
   ]);
   weatherRuns[0].run.resolve();
   radarRuns[0].run.resolve();
@@ -1197,6 +1496,581 @@ assert.match(indexSource, /aria-label="Location suggestions"/);
   const radarState = test.getRadarState();
   assert.equal(radarState.displayedRadarSource, "hybrid");
   assert.equal(radarState.radarFrames[0].sentinel, true, "stale LibreWXR must not replace newer Dutch radar");
+}
+
+{
+  const windowTimers = createManualWindowTimers();
+  const test = createHarness({ windowTimers });
+  const knmiRun = createDeferred();
+  const buienradarRun = createDeferred();
+  const progressive = configureProgressiveRadarHarness(test, { buienradarRun, knmiRun });
+  const context = test.createRadarLoadContext();
+  const radarLoad = test.loadHybridRadar(context);
+
+  assert.deepEqual(progressive.fetches, [
+    { forceRefresh: true, hasTiming: true, source: "knmi" },
+    { forceRefresh: true, hasTiming: true, modeId: "3h", source: "buienradar" },
+  ], "KNMI and Buienradar should start together");
+
+  knmiRun.resolve({ id: "knmi-first" });
+  await withTimeout(radarLoad, "KNMI-first progressive radar");
+  assert.deepEqual(progressive.displays, [
+    { id: "knmi-first", preserveSelection: false, source: "knmi" },
+  ], "fresh KNMI should display without waiting for Buienradar");
+  assert.equal(progressive.preloadCalls, 0);
+
+  buienradarRun.resolve({ id: "buienradar-late" });
+  await flushPromises();
+  assert.deepEqual(progressive.displays, [
+    { id: "knmi-first", preserveSelection: false, source: "knmi" },
+    {
+      buienradarId: "buienradar-late",
+      knmiId: "knmi-first",
+      preserveSelection: true,
+      source: "hybrid",
+    },
+  ], "late Buienradar should enrich the visible KNMI radar in place");
+  assert.equal(progressive.preloadCalls, 1);
+}
+
+{
+  const windowTimers = createManualWindowTimers();
+  const test = createHarness({ windowTimers });
+  const knmiRun = createDeferred();
+  const buienradarRun = createDeferred();
+  const progressive = configureProgressiveRadarHarness(test, { buienradarRun, knmiRun });
+  let disabledRadarCalls = 0;
+  let libreFallbackCalls = 0;
+  test.setRadarDependencies({
+    disable() {
+      disabledRadarCalls += 1;
+    },
+    libre() {
+      libreFallbackCalls += 1;
+      return Promise.resolve();
+    },
+    status() {},
+    update() {},
+  });
+
+  const radarLoad = test.loadRadar();
+  knmiRun.resolve({ id: "knmi-only" });
+  await withTimeout(radarLoad, "KNMI radar with failed Buienradar enrichment");
+  buienradarRun.reject(new Error("Buienradar unavailable"));
+  await flushPromises();
+
+  assert.deepEqual(progressive.displays, [
+    { id: "knmi-only", preserveSelection: false, source: "knmi" },
+  ]);
+  assert.equal(libreFallbackCalls, 0, "a usable KNMI radar must not fall back to LibreWXR");
+  assert.equal(disabledRadarCalls, 0, "a late Buienradar failure must not disable KNMI");
+  assert.equal(test.getRadarState().displayedRadarSource, "knmi");
+}
+
+{
+  const windowTimers = createManualWindowTimers();
+  const test = createHarness({ windowTimers });
+  const weatherRun = createDeferred();
+  const knmiRun = createDeferred();
+  const buienradarRun = createDeferred();
+  const progressive = configureProgressiveRadarHarness(test, { buienradarRun, knmiRun });
+  const realRadarLoader = test.loadRadar;
+  test.setLoaders(() => weatherRun.promise, realRadarLoader);
+  test.setRadarDependencies({
+    disable() {},
+    libre: async () => undefined,
+    status() {},
+    update() {},
+  });
+
+  const refresh = test.loadAll();
+  weatherRun.resolve();
+  await flushPromises();
+  assert.equal(test.getControls().appLoading, true, "weather alone must not end loading before radar is usable");
+  assert.equal(test.getControls().refreshDisabled, true);
+
+  knmiRun.resolve({ id: "knmi-refresh" });
+  await withTimeout(refresh, "refresh ending at first usable radar");
+  assert.equal(test.getControls().appLoading, false, "weather plus KNMI should end the main loading state");
+  assert.equal(test.getControls().refreshDisabled, false);
+  assert.deepEqual(progressive.displays, [
+    { id: "knmi-refresh", preserveSelection: false, source: "knmi" },
+  ], "the refresh should finish while Buienradar is still pending");
+
+  buienradarRun.resolve({ id: "buienradar-background" });
+  await flushPromises();
+  assert.deepEqual(progressive.displays.map(({ source }) => source), ["knmi", "hybrid"]);
+  assert.equal(test.getControls().appLoading, false, "background enrichment must not restart the main spinner");
+  assert.equal(test.getControls().refreshDisabled, false);
+}
+
+{
+  const test = createHarness();
+  const startTimeMs = Date.UTC(2026, 7, 21, 10, 0, 0);
+  const radar = test.createRadarFixtures(startTimeMs);
+  test.stubRadarRenderingSideEffects();
+
+  test.displayKnmiRadar(radar.knmi);
+  assert.equal(test.getRadarUiState().sliderMax, 2400);
+  test.setRadarSliderSelection(1200);
+  const beforeHybrid = test.getRadarUiState();
+  assert.equal(beforeHybrid.activeTimeMs, startTimeMs + 60 * 60 * 1000);
+  assert.equal(beforeHybrid.sliderWasAtStart, false);
+
+  test.displayHybridRadar(radar.knmi, radar.buienradar, { preserveSelection: true });
+  const afterHybrid = test.getRadarUiState();
+  assert.equal(afterHybrid.source, "hybrid");
+  assert.equal(afterHybrid.sliderMax, 3600, "Buienradar should extend the range to three hours");
+  assert.equal(afterHybrid.sliderValue, 1200, "hybrid enrichment must preserve time, not reset or preserve percentage");
+  assert.equal(afterHybrid.activeTimeMs, beforeHybrid.activeTimeMs, "the absolute selected radar time must stay unchanged");
+  assert.equal(afterHybrid.sliderWasAtStart, false);
+  assert.equal(afterHybrid.radarTime, beforeHybrid.radarTime);
+  assert.equal(afterHybrid.ariaValue, beforeHybrid.ariaValue);
+}
+
+{
+  const test = createHarness();
+  const startTimeMs = Date.UTC(2026, 7, 21, 10, 0, 0);
+  const radar = test.createRadarFixtures(startTimeMs);
+  const knmiRun = createDeferred();
+  const buienradarRun = createDeferred();
+  let disabledRadarCalls = 0;
+  let libreFallbackCalls = 0;
+  let preloadCalls = 0;
+  let radarLoaderReturned = false;
+  test.stubRadarRenderingSideEffects();
+  test.displayHybridRadar(radar.knmi, radar.buienradar);
+  test.setRadarSliderSelection(3000);
+  const retainedState = test.getRadarUiState();
+  assert.equal(retainedState.sliderMax, 3600);
+  assert.equal(retainedState.activeTimeMs, startTimeMs + 150 * 60 * 1000);
+
+  test.setHybridRadarDependencies({
+    fetchBuienradar() {
+      return buienradarRun.promise;
+    },
+    fetchKnmi() {
+      return knmiRun.promise;
+    },
+    schedulePreload() {
+      preloadCalls += 1;
+    },
+  });
+  test.setRadarDependencies({
+    disable() {
+      disabledRadarCalls += 1;
+    },
+    libre() {
+      libreFallbackCalls += 1;
+      return Promise.resolve();
+    },
+    status() {},
+    update() {},
+  });
+  const realRadarLoader = test.loadRadar;
+  test.setLoaders(
+    async () => undefined,
+    async (options) => {
+      await realRadarLoader(options);
+      radarLoaderReturned = true;
+    },
+  );
+
+  const refresh = test.loadAll();
+  knmiRun.resolve(radar.knmi);
+  await flushPromises();
+  await withTimeout(refresh, "retained hybrid refresh after fresh KNMI");
+
+  const knmiRefreshedState = test.getRadarUiState();
+  assert.equal(radarLoaderReturned, true, "loadRadar should return while fresh Buienradar remains pending");
+  assert.equal(test.getControls().appLoading, false, "loadAll should finish with the retained hybrid usable");
+  assert.equal(knmiRefreshedState.source, "hybrid", "fresh KNMI must combine with retained Buienradar");
+  assert.equal(knmiRefreshedState.sliderMax, 3600, "the retained Buienradar range must stay available");
+  assert.equal(knmiRefreshedState.sliderValue, retainedState.sliderValue);
+  assert.equal(knmiRefreshedState.activeTimeMs, retainedState.activeTimeMs);
+  assert.equal(knmiRefreshedState.radarTime, retainedState.radarTime);
+  assert.equal(knmiRefreshedState.ariaValue, retainedState.ariaValue);
+
+  buienradarRun.reject(new Error("fresh Buienradar unavailable"));
+  await flushPromises();
+  const failedBuienradarState = test.getRadarUiState();
+  assert.equal(failedBuienradarState.source, "hybrid", "a failed refresh must not downgrade retained hybrid to KNMI-only");
+  assert.equal(failedBuienradarState.sliderMax, 3600);
+  assert.equal(failedBuienradarState.sliderValue, retainedState.sliderValue);
+  assert.equal(failedBuienradarState.activeTimeMs, retainedState.activeTimeMs);
+  assert.equal(libreFallbackCalls, 0);
+  assert.equal(disabledRadarCalls, 0);
+  assert.equal(preloadCalls, 0);
+}
+
+{
+  const windowTimers = createManualWindowTimers();
+  const test = createHarness({ windowTimers });
+  const knmiRun = createDeferred();
+  const buienradarRun = createDeferred();
+  const progressive = configureProgressiveRadarHarness(test, { buienradarRun, knmiRun });
+  const obsoleteContext = test.createRadarLoadContext();
+  const obsoleteLoad = test.loadHybridRadar(obsoleteContext);
+
+  knmiRun.resolve({ id: "obsolete-knmi" });
+  await withTimeout(obsoleteLoad, "first radar before superseding load");
+  test.createRadarLoadContext();
+  buienradarRun.resolve({ id: "obsolete-buienradar" });
+  await flushPromises();
+
+  assert.deepEqual(progressive.displays, [
+    { id: "obsolete-knmi", preserveSelection: false, source: "knmi" },
+  ], "late enrichment from an obsolete radar load must not render");
+  assert.equal(progressive.preloadCalls, 0);
+}
+
+{
+  const windowTimers = createManualWindowTimers();
+  const test = createHarness({ windowTimers });
+  const knmiRun = createDeferred();
+  const buienradarRun = createDeferred();
+  const progressive = configureProgressiveRadarHarness(test, { buienradarRun, knmiRun });
+  const context = test.createRadarLoadContext();
+  const radarLoad = test.loadHybridRadar(context);
+
+  buienradarRun.resolve({ id: "buienradar-fast" });
+  await flushPromises();
+  assert.deepEqual(progressive.displays, [], "Buienradar should briefly wait for preferred KNMI");
+  assert.equal(windowTimers.pendingCount, 1);
+  const preferenceDelayMs = windowTimers.runNext();
+  assert.ok(preferenceDelayMs > 0, "the KNMI preference should use a soft positive deadline");
+
+  await withTimeout(radarLoad, "Buienradar fallback after KNMI preference deadline");
+  assert.deepEqual(progressive.displays, [
+    { id: "buienradar-fast", preserveSelection: false, source: "buienradar" },
+  ]);
+
+  knmiRun.resolve({ id: "knmi-late" });
+  await flushPromises();
+  assert.deepEqual(progressive.displays, [
+    { id: "buienradar-fast", preserveSelection: false, source: "buienradar" },
+    {
+      buienradarId: "buienradar-fast",
+      knmiId: "knmi-late",
+      preserveSelection: true,
+      source: "hybrid",
+    },
+  ], "late KNMI should enrich the deadline fallback without blocking it");
+}
+
+for (const timeoutCase of [
+  {
+    bodyMethod: "text",
+    invoke(test) {
+      return test.downloadKnmiRadarMetadataResponse();
+    },
+    label: "KNMI metadata",
+    message: "KNMI radar capabilities timed out",
+  },
+  {
+    bodyMethod: "json",
+    invoke(test) {
+      return test.loadLibreWxrRadar(test.createRadarLoadContext());
+    },
+    label: "LibreWXR",
+    message: "LibreWXR radar timed out",
+  },
+]) {
+  for (const phase of ["headers", "body"]) {
+    const windowTimers = createManualWindowTimers();
+    const test = createHarness({ windowTimers });
+    const stalledFetch = createAbortableFetchStall({
+      bodyMethod: timeoutCase.bodyMethod,
+      phase,
+    });
+    test.setFetch(stalledFetch.fetch);
+
+    const operation = timeoutCase.invoke(test);
+    await flushPromises();
+    assert.ok(stalledFetch.signal, timeoutCase.label + " should receive an abort signal");
+    assert.equal(stalledFetch.signal.aborted, false);
+    assert.equal(stalledFetch.bodyCalls, phase === "body" ? 1 : 0);
+    assert.equal(windowTimers.pendingCount, 1);
+
+    const rejection = assert.rejects(operation, { message: timeoutCase.message });
+    const timeoutMs = windowTimers.runNext();
+    assert.equal(timeoutMs, 6000, timeoutCase.label + " " + phase + " stall should use the six-second deadline");
+    await rejection;
+    assert.equal(stalledFetch.signal.aborted, true);
+    assert.equal(stalledFetch.abortCount, 1);
+    assert.equal(windowTimers.pendingCount, 0);
+  }
+}
+
+for (const firstFreshSource of ["knmi", "buienradar"]) {
+  const test = createHarness();
+  const startTimeMs = Date.UTC(2026, 7, 21, 10, 0, 0);
+  const radar = test.createRadarFixtures(startTimeMs);
+  const runs = {
+    buienradar: createDeferred(),
+    knmi: createDeferred(),
+  };
+  const sampleCalls = [];
+  test.stubRadarRenderingSideEffects({ preserveRadarStatus: true });
+  test.displayHybridRadar(radar.knmi, radar.buienradar);
+  test.setRadarSamplePreparers({
+    buienradar() {
+      sampleCalls.push("buienradar");
+    },
+    knmi() {
+      sampleCalls.push("knmi");
+    },
+  });
+  test.setHybridRadarDependencies({
+    fetchBuienradar() {
+      return runs.buienradar.promise;
+    },
+    fetchKnmi() {
+      return runs.knmi.promise;
+    },
+    schedulePreload() {},
+  });
+
+  await withTimeout(test.loadRadar(), "retained hybrid refresh start");
+  runs[firstFreshSource].resolve(radar[firstFreshSource]);
+  await flushPromises();
+  assert.deepEqual(
+    sampleCalls,
+    [firstFreshSource],
+    "retained hybrid should sample only the newly refreshed " + firstFreshSource + " half",
+  );
+  assert.deepEqual({ ...test.getRadarMapStatus() }, {
+    hidden: false,
+    isError: false,
+    message: "Updating rain forecast...",
+  }, "the retained hybrid should remain calmly updating after its first fresh source");
+
+  const failedSource = firstFreshSource === "knmi" ? "buienradar" : "knmi";
+  runs[failedSource].reject(new Error(failedSource + " unavailable"));
+  await flushPromises();
+  assert.deepEqual({ ...test.getRadarMapStatus() }, {
+    hidden: false,
+    isError: true,
+    message: "Radar update delayed",
+  }, "a partial retained refresh should become an error only after the other source fails");
+  assert.deepEqual(sampleCalls, [firstFreshSource]);
+  assert.equal(test.getRadarUiState().source, "hybrid");
+}
+
+{
+  const windowTimers = createManualWindowTimers();
+  const test = createHarness({ windowTimers });
+  const startTimeMs = Date.UTC(2026, 7, 21, 10, 0, 0);
+  const radar = test.createRadarFixtures(startTimeMs);
+  const knmiRun = createDeferred();
+  const buienradarRun = createDeferred();
+  const sampleCalls = [];
+  test.stubRadarRenderingSideEffects();
+  test.setRadarSamplePreparers({
+    buienradar() {
+      sampleCalls.push("buienradar");
+    },
+    knmi() {
+      sampleCalls.push("knmi");
+    },
+  });
+  test.setHybridRadarDependencies({
+    fetchBuienradar() {
+      return buienradarRun.promise;
+    },
+    fetchKnmi() {
+      return knmiRun.promise;
+    },
+    schedulePreload() {},
+  });
+
+  const radarLoad = test.loadHybridRadar(test.createRadarLoadContext());
+  knmiRun.resolve(radar.knmi);
+  buienradarRun.resolve(radar.buienradar);
+  await withTimeout(radarLoad, "all-fresh hybrid sampling");
+  await flushPromises();
+  assert.deepEqual(
+    sampleCalls,
+    ["knmi", "buienradar"],
+    "an ordinary all-fresh hybrid display should prepare both radar sample series",
+  );
+}
+
+{
+  const test = createHarness();
+  const startTimeMs = Date.UTC(2026, 7, 21, 10, 0, 0);
+  const radar = test.createRadarFixtures(startTimeMs);
+  const knmiRun = createDeferred();
+  const buienradarRun = createDeferred();
+  test.stubRadarRenderingSideEffects({ preserveRadarStatus: true });
+  test.displayHybridRadar(radar.knmi, radar.buienradar);
+  test.setHybridRadarDependencies({
+    fetchBuienradar() {
+      return buienradarRun.promise;
+    },
+    fetchKnmi() {
+      return knmiRun.promise;
+    },
+    schedulePreload() {},
+  });
+
+  await withTimeout(test.loadRadar(), "retained all-success refresh start");
+  knmiRun.resolve(radar.knmi);
+  await flushPromises();
+  assert.deepEqual({ ...test.getRadarMapStatus() }, {
+    hidden: false,
+    isError: false,
+    message: "Updating rain forecast...",
+  });
+
+  buienradarRun.resolve(radar.buienradar);
+  await flushPromises();
+  assert.deepEqual({ ...test.getRadarMapStatus() }, {
+    hidden: true,
+    isError: false,
+    message: "Updating rain forecast...",
+  }, "a fully fresh retained hybrid should clear the updating status without an error");
+}
+
+{
+  const analyticsEvents = [];
+  const clock = createManualClock();
+  const windowTimers = createManualWindowTimers();
+  const test = createHarness({
+    analyticsEvents,
+    hostname: "mymeteo.nl",
+    performanceNow: clock.now,
+    windowTimers,
+  });
+  const knmiRun = createDeferred();
+  const buienradarRun = createDeferred();
+  configureProgressiveRadarHarness(test, { buienradarRun, knmiRun });
+  const context = test.createRadarLoadContext({ trigger: "manual_refresh" });
+  const radarLoad = test.loadHybridRadar(context);
+
+  clock.advance(240);
+  knmiRun.resolve({ id: "knmi-direct-hybrid" });
+  buienradarRun.resolve({ id: "buienradar-direct-hybrid" });
+  await withTimeout(radarLoad, "direct hybrid timing report");
+  await flushPromises();
+
+  const timingEvents = getRadarTimingEvents(analyticsEvents);
+  assert.equal(timingEvents.length, 1, "a completed current radar load should emit exactly one timing event");
+  assert.equal(timingEvents[0].first_source, "hybrid", "direct hybrid display must not be reported as KNMI-first");
+  assert.equal(timingEvents[0].outcome, "hybrid");
+  assert.equal(timingEvents[0].trigger, "manual_refresh");
+  assert.equal(timingEvents[0].radar_mode, "3h");
+  assert.equal(timingEvents[0].knmi_status, "success");
+  assert.equal(timingEvents[0].buienradar_status, "success");
+  assert.equal(timingEvents[0].knmi_settled_ms, 300);
+  assert.equal(timingEvents[0].buienradar_settled_ms, 300);
+}
+
+{
+  const analyticsEvents = [];
+  const clock = createManualClock();
+  const windowTimers = createManualWindowTimers();
+  const test = createHarness({
+    analyticsEvents,
+    hostname: "mymeteo.nl",
+    performanceNow: clock.now,
+    windowTimers,
+  });
+  const startTimeMs = Date.UTC(2026, 7, 21, 10, 0, 0);
+  const radar = test.createRadarFixtures(startTimeMs);
+  const knmiRun = createDeferred();
+  const buienradarRun = createDeferred();
+  test.stubRadarRenderingSideEffects();
+  test.displayHybridRadar(radar.knmi, radar.buienradar);
+  configureProgressiveRadarHarness(test, { buienradarRun, knmiRun });
+
+  const radarLoad = test.loadRadar({ trigger: "manual_refresh" });
+  await withTimeout(radarLoad, "retained radar timing refresh start");
+  clock.advance(120);
+  knmiRun.resolve({ id: "fresh-knmi-for-retained" });
+  await flushPromises();
+  clock.advance(150);
+  buienradarRun.resolve({ id: "fresh-buienradar-for-retained" });
+  await flushPromises();
+
+  const timingEvents = getRadarTimingEvents(analyticsEvents);
+  assert.equal(timingEvents.length, 1);
+  assert.equal(timingEvents[0].first_source, "retained");
+  assert.equal(timingEvents[0].retained_visible, true);
+  assert.equal(
+    Object.hasOwn(timingEvents[0], "first_usable_ms"),
+    false,
+    "retained radar should use a boolean flag instead of unsupported numeric zero metadata",
+  );
+  assert.equal(timingEvents[0].first_fresh_ms, 200);
+  assert.equal(timingEvents[0].outcome, "hybrid");
+  assert.equal(timingEvents[0].trigger, "manual_refresh");
+  assert.equal(timingEvents[0].radar_mode, "3h");
+}
+
+{
+  const analyticsEvents = [];
+  const clock = createManualClock();
+  const windowTimers = createManualWindowTimers();
+  const test = createHarness({
+    analyticsEvents,
+    hostname: "mymeteo.nl",
+    performanceNow: clock.now,
+    windowTimers,
+  });
+  const knmiRun = createDeferred();
+  const buienradarRun = createDeferred();
+  configureProgressiveRadarHarness(test, { buienradarRun, knmiRun });
+  const context = test.createRadarLoadContext({ trigger: "location_change" });
+  const radarLoad = test.loadHybridRadar(context);
+
+  clock.advance(350);
+  knmiRun.reject(new Error("KNMI unavailable"));
+  await flushPromises();
+  clock.advance(420);
+  buienradarRun.resolve({ id: "buienradar-after-knmi-failure" });
+  await withTimeout(radarLoad, "source failure timing report");
+  await flushPromises();
+
+  const timingEvents = getRadarTimingEvents(analyticsEvents);
+  assert.equal(timingEvents.length, 1);
+  assert.equal(timingEvents[0].knmi_status, "failure");
+  assert.equal(timingEvents[0].knmi_settled_ms, 400, "failed sources should retain their settled latency");
+  assert.equal(timingEvents[0].buienradar_status, "success");
+  assert.equal(timingEvents[0].buienradar_settled_ms, 800);
+  assert.equal(timingEvents[0].first_source, "buienradar");
+  assert.equal(timingEvents[0].outcome, "buienradar_only");
+  assert.equal(timingEvents[0].trigger, "location_change");
+}
+
+{
+  const analyticsEvents = [];
+  const clock = createManualClock();
+  const windowTimers = createManualWindowTimers();
+  const test = createHarness({
+    analyticsEvents,
+    hostname: "mymeteo.nl",
+    performanceNow: clock.now,
+    windowTimers,
+  });
+  const knmiRun = createDeferred();
+  const buienradarRun = createDeferred();
+  configureProgressiveRadarHarness(test, { buienradarRun, knmiRun });
+  const obsoleteContext = test.createRadarLoadContext({ trigger: "location_change" });
+  const obsoleteLoad = test.loadHybridRadar(obsoleteContext);
+
+  test.createRadarLoadContext({ trigger: "manual_refresh" });
+  clock.advance(500);
+  knmiRun.resolve({ id: "obsolete-knmi-timing" });
+  buienradarRun.resolve({ id: "obsolete-buienradar-timing" });
+  await withTimeout(obsoleteLoad, "stale timing load completion");
+  await flushPromises();
+
+  assert.equal(
+    getRadarTimingEvents(analyticsEvents).length,
+    0,
+    "a stale radar context must not emit production timing analytics",
+  );
 }
 
 console.log("MyMeteo loading race checks passed.");

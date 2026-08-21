@@ -1,6 +1,6 @@
 # MyMeteo Project Context
 
-Last updated: 2026-08-19
+Last updated: 2026-08-21
 
 This file is the shared product memory for MyMeteo. Read it before discussing or changing the app in a new Codex chat. It summarizes the decisions, trade-offs, and design philosophy that emerged from the MyMeteo development chats, the app changelog, the README, git history, and the current implementation.
 
@@ -107,6 +107,10 @@ Location search and the current-location control should remain usable while weat
 
 Render the base Open-Meteo forecast as soon as it arrives, then enrich the already-visible forecast when KNMI/Buienradar point and image rain signals become available. When changing location, use the existing stable weather-card shell as a short updating state rather than showing the previous location's weather under the new location name. Reuse fresh regional radar frames when they remain valid for the newly selected location.
 
+For Netherlands radar, start KNMI and Buienradar together but do not make the first usable display wait for both. On a cold load, show KNMI as soon as it is ready; if Buienradar is ready first, give KNMI a short 1.5-second preference window, then show Buienradar rather than continuing to wait. Enrich to the full KNMI-plus-Buienradar hybrid when the second source arrives. The main refresh spinner should end once forecast data and a usable radar are available, while later radar enrichment continues in the background.
+
+During repeat Netherlands radar refreshes, keep the existing radar, slider, and selected absolute time usable. As each fresh source arrives, combine it with the retained counterpart so the update never shortens an existing hybrid range; stale request generations may populate caches but must not change visible UI or status. A failed refresh should retain the last usable radar with a small delayed-update status, and radar source network/body loading has a hard timeout so it cannot hold the pipeline indefinitely.
+
 ### Keep The Weather Card Calm
 
 The Today weather card should feel visually stable while the slider moves. Contents may change, but columns, slider width, and important alignments should not jump around.
@@ -192,7 +196,7 @@ After live Amsterdam testing in heavy rain and thunderstorms, KNMI became the pr
 
 For locations outside the Netherlands or when KNMI/Buienradar are unavailable, LibreWXR/fallback radar tiles are used. The outside-Netherlands one-hour radar animation was smoothed to feel less jumpy.
 
-Radar downloads and decoded frames are cached carefully, with cache busting and cleanup to avoid stale or leaking frame URLs.
+Radar downloads and decoded frames are cached carefully in memory, with cache busting and cleanup to avoid stale or leaking frame URLs. Do not add persistent/service-worker radar caching or server-side prewarming yet: the progressive/retained-loading behavior should be measured in real use first, and radar freshness and operational complexity matter more than speculative preloading.
 
 ### Visual Identity
 
@@ -216,7 +220,7 @@ The `MyMeteo` title can open the About modal, like the info icon, but it should 
 
 iPhone Safari, Chrome on iPhone, and iOS home-screen shortcuts can cache CSS, JS, metadata, and app icons stubbornly. Cache-busting query strings and version bumps are part of the workflow after deploy-sensitive changes. For home-screen icon changes, users may need to delete and re-add the shortcut.
 
-MyMeteo uses Simple Analytics for privacy-friendly usage statistics and lightweight custom events such as tab switches, outfit/radar mode changes, current-location use, refreshes, and Easter egg activation. Google Analytics was removed after Simple Analytics pageviews and events were verified. Keep analytics modest and privacy-aligned; the app does not need marketing-funnel tooling.
+MyMeteo uses Simple Analytics for privacy-friendly usage statistics and lightweight custom events such as tab switches, outfit/radar mode changes, current-location use, refreshes, and Easter egg activation. The invisible `radar_load_timing` event uses only coarse source/outcome/cache-path labels and timings rounded up to 100 ms; it must not include coordinates, place names, URLs, request IDs, timestamps, or error text. Google Analytics was removed after Simple Analytics pageviews and events were verified. Keep analytics modest and privacy-aligned; the app does not need marketing-funnel tooling.
 
 ## Design Taste
 

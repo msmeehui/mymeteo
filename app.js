@@ -8,6 +8,7 @@ const DEFAULT_LOCATION = {
 
 const storedLocationKey = "mymeteo.location";
 const libreWxrRadarUrl = "https://api.librewxr.net/public/weather-maps.json";
+const libreWxrRadarTimeoutMs = 6000;
 const buienradarAnimationBaseUrl = "https://image.buienradar.nl/2.0/image/animation";
 const buienradarPointRainBaseUrl = "https://gps.buienradar.nl/getrr.php";
 const knmiWmsBaseUrl = window.location.origin && window.location.origin !== "null"
@@ -28,15 +29,18 @@ const queryParams = new URLSearchParams(window.location.search);
 const outfitDebugQueryParam = "debugOutfit";
 const outfitSceneOverrideQueryParam = "outfitState";
 const rainDebugQueryParam = "debugRain";
+const radarTimingDebugQueryParam = "debugRadar";
 const rainSourceQueryParam = "rainSource";
 const rainSourceCompareQueryValue = "compare";
 const isOutfitDebugEnabled = queryParams.get(outfitDebugQueryParam) === "1";
 const isRainDebugEnabled = queryParams.get(rainDebugQueryParam) === "1";
+const isRadarTimingDebugEnabled = queryParams.get(radarTimingDebugQueryParam) === "1";
 const isRainSourceCompareEnabled = queryParams.get(rainSourceQueryParam) === rainSourceCompareQueryValue;
 const outfitScenePreloadInitialDelayMs = 1200;
 const outfitScenePreloadStepDelayMs = 700;
 const outfitScenePreloadIdleTimeoutMs = 1500;
 const buienradarRadarCacheMaxAgeMs = 9 * 60 * 1000;
+const buienradarRadarTimeoutMs = 10 * 1000;
 const buienradarPointRainCacheMaxAgeMs = 4 * 60 * 1000;
 const buienradarPointRainTimeoutMs = 3500;
 const knmiRadarCacheMaxAgeMs = 4 * 60 * 1000;
@@ -44,6 +48,7 @@ const knmiPointRainCacheMaxAgeMs = 4 * 60 * 1000;
 const knmiRadarMetadataTimeoutMs = 6000;
 const knmiRadarImageLoadTimeoutMs = 8000;
 const knmiRadarFramePreloadDelayMs = 45;
+const knmiPreferredRadarWaitMs = 1500;
 const knmiPointRainTimeoutMs = 5000;
 const knmiPointRainConcurrentRequests = 2;
 const knmiPointRainInitialSampleCount = 2;
@@ -55,6 +60,7 @@ const compactLocationLabelMediaQuery = "(max-width: 480px)";
 const desktopLayoutMediaQuery = "(min-width: 900px)";
 const reverseGeocodingTimeoutMs = 5 * 1000;
 const analyticsHostnames = new Set(["mymeteo.nl", "www.mymeteo.nl"]);
+const radarTimingHistoryLimit = 20;
 const buienradarBounds = [
   [48.92249926375824, 0],
   [55.77657301866769, 11.25],
@@ -696,6 +702,7 @@ let buienradarPointRainRequests = new Map();
 let buienradarRainSamples = new Map();
 let buienradarRainSampleRuns = new Map();
 let rainDebugEntries = [];
+let radarTimingHistory = [];
 let buienradarStartDate;
 let buienradarTimeline = buienradarDefaultTimeline;
 let buienradarDisplayRequestId = 0;
@@ -794,7 +801,9 @@ function init() {
   syncForecastViewForViewport();
   hydrateStoredCurrentLocationName();
   loadInitialWeather();
-  refreshTimer = window.setInterval(loadAll, 10 * 60 * 1000);
+  refreshTimer = window.setInterval(() => {
+    loadAll({ radarTrigger: "automatic_refresh" });
+  }, 10 * 60 * 1000);
 }
 
 function bindEvents() {
@@ -852,7 +861,7 @@ function bindEvents() {
   }
   elements.refreshButton.addEventListener("click", () => {
     trackAnalyticsEvent("refresh");
-    loadAll();
+    loadAll({ radarTrigger: "manual_refresh" });
   });
   elements.outfitModeToggle.addEventListener("click", toggleOutfitMode);
   bindEasterEggEvents();
@@ -925,7 +934,7 @@ function setRainSourceMode(mode) {
   syncRainSourceModeControls();
   trackAnalyticsEvent(`rain_source_${mode}`);
   renderWeatherForRadarBlend();
-  loadRadar();
+  loadRadar({ trigger: "source_mode" });
 }
 
 function syncRainSourceModeControls() {
@@ -944,14 +953,145 @@ function shouldEnableAnalytics() {
   return analyticsHostnames.has(window.location.hostname.toLowerCase());
 }
 
-function trackAnalyticsEvent(eventName) {
+function trackAnalyticsEvent(eventName, metadata) {
   if (!shouldEnableAnalytics()) {
     return;
   }
 
   if (typeof window.sa_event === "function") {
-    window.sa_event(eventName);
+    if (metadata) {
+      window.sa_event(eventName, metadata);
+    } else {
+      window.sa_event(eventName);
+    }
   }
+}
+
+function getRadarTimingNow() {
+  if (typeof performance !== "undefined" && typeof performance.now === "function") {
+    return performance.now();
+  }
+
+  return Date.now();
+}
+
+function createRadarTimingSession() {
+  return {
+    durations: {},
+    marks: {},
+    paths: {},
+    reported: false,
+    statuses: {},
+    startedAt: getRadarTimingNow(),
+  };
+}
+
+function markRadarTiming(timing, key) {
+  if (!timing || Number.isFinite(timing.marks[key])) {
+    return;
+  }
+
+  timing.marks[key] = Math.max(getRadarTimingNow() - timing.startedAt, 0);
+}
+
+function markRadarTimingDuration(timing, key, startedAt) {
+  if (!timing || Number.isFinite(timing.durations[key]) || !Number.isFinite(startedAt)) {
+    return;
+  }
+
+  timing.durations[key] = Math.max(getRadarTimingNow() - startedAt, 0);
+}
+
+function setRadarTimingPath(timing, source, path) {
+  if (!timing || timing.paths[source]) {
+    return;
+  }
+
+  timing.paths[source] = path;
+}
+
+function setRadarTimingStatus(timing, source, status) {
+  if (!timing || timing.statuses[source]) {
+    return;
+  }
+
+  timing.statuses[source] = status;
+}
+
+function markFirstUsableRadar(context, source, { isFresh = true } = {}) {
+  const timing = context?.radarTiming;
+  if (!timing) {
+    return;
+  }
+
+  if (!Number.isFinite(timing.marks.first_usable_ms)) {
+    markRadarTiming(timing, "first_usable_ms");
+    timing.firstSource = source;
+  }
+
+  if (isFresh) {
+    markRadarTiming(timing, "first_fresh_ms");
+  }
+}
+
+function markRetainedRadarUsable(context) {
+  const timing = context?.radarTiming;
+  if (!timing) {
+    return;
+  }
+
+  timing.marks.first_usable_ms = 0;
+  timing.firstSource = "retained";
+}
+
+function quantizeRadarTiming(value) {
+  if (!Number.isFinite(value)) {
+    return undefined;
+  }
+
+  return value > 0 ? clampNumber(Math.ceil(value / 100) * 100, 100, 60 * 1000) : undefined;
+}
+
+function reportRadarTiming(context, outcome) {
+  const timing = context?.radarTiming;
+  if (!timing || timing.reported || !isRadarLoadContextCurrent(context)) {
+    return;
+  }
+
+  timing.reported = true;
+  const metadata = {
+    first_source: timing.firstSource || "none",
+    outcome,
+    radar_mode: context.radarModeId,
+    trigger: context.trigger,
+  };
+  if (timing.firstSource === "retained") {
+    metadata.retained_visible = true;
+  }
+
+  Object.entries({ ...timing.durations, ...timing.marks }).forEach(([key, value]) => {
+    const quantizedValue = quantizeRadarTiming(value);
+    if (Number.isFinite(quantizedValue)) {
+      metadata[key] = quantizedValue;
+    }
+  });
+  Object.entries(timing.paths).forEach(([source, path]) => {
+    metadata[`${source}_path`] = path;
+  });
+  Object.entries(timing.statuses).forEach(([source, status]) => {
+    metadata[`${source}_status`] = status;
+  });
+
+  radarTimingHistory.push(metadata);
+  if (radarTimingHistory.length > radarTimingHistoryLimit) {
+    radarTimingHistory = radarTimingHistory.slice(-radarTimingHistoryLimit);
+  }
+  window.mymeteoRadarTimings = radarTimingHistory;
+
+  if (isRadarTimingDebugEnabled) {
+    console.debug("MyMeteo radar timing", metadata);
+  }
+  trackAnalyticsEvent("radar_load_timing", metadata);
 }
 
 function renderLocation() {
@@ -1726,7 +1866,7 @@ async function loadInitialWeather() {
   });
 
   if (!didAttemptCurrentLocationRefresh && dataLoadRequestId === loadRequestIdBeforeLocationRefresh) {
-    loadAll();
+    loadAll({ radarTrigger: "initial" });
   }
 }
 
@@ -1778,7 +1918,7 @@ async function refreshCurrentLocationIfAllowed({ analyticsEventName, loadWeather
 
   const didRefresh = await currentLocationRefreshPromise;
   if (!didRefresh && loadWeatherOnFailure && dataLoadRequestId === loadRequestIdBeforeRefresh) {
-    loadAll();
+    loadAll({ radarTrigger: "location_refresh" });
   }
   return true;
 }
@@ -1845,7 +1985,7 @@ async function requestCurrentLocation({ analyticsEventName, isAutoRefresh = fals
     setCurrentLocationErrorMessage(getGeolocationErrorMessage(error));
 
     if (loadWeatherOnFailure) {
-      loadAll();
+      loadAll({ radarTrigger: "location_refresh" });
     }
 
     return false;
@@ -2073,7 +2213,7 @@ function applyLocation(location, analyticsEventName, { intentId = beginManualLoc
   }
   renderLocation();
   updateMapLocation();
-  loadAll({ forceRadarRefresh: false });
+  loadAll({ forceRadarRefresh: false, radarTrigger: "location_change" });
   return true;
 }
 
@@ -2174,7 +2314,7 @@ function centerMapOnSelectedLocation() {
   });
 }
 
-function createDataLoadContext({ forceRadarRefresh = true } = {}) {
+function createDataLoadContext({ forceRadarRefresh = true, radarTrigger = "other" } = {}) {
   const requestId = dataLoadRequestId + 1;
   const location = { ...selectedLocation };
   dataLoadRequestId = requestId;
@@ -2183,6 +2323,7 @@ function createDataLoadContext({ forceRadarRefresh = true } = {}) {
     location,
     locationKey: getBuienradarSampleLocationKey(location),
     forceRadarRefresh,
+    radarTrigger,
     statusRevision: getForecastStatusRevision(),
   };
 }
@@ -2211,7 +2352,10 @@ async function loadAll(options = {}) {
   try {
     await Promise.allSettled([
       loadWeather(context),
-      loadRadar({ forceRefresh: context.forceRadarRefresh }),
+      loadRadar({
+        forceRefresh: context.forceRadarRefresh,
+        trigger: context.radarTrigger,
+      }),
     ]);
   } finally {
     if (isDataLoadContextCurrent(context)) {
@@ -4600,7 +4744,7 @@ function displayBuienradarModeRadar(radar) {
   displayBuienradarRadar(radar);
 }
 
-function createRadarLoadContext({ forceRefresh = true } = {}) {
+function createRadarLoadContext({ forceRefresh = true, trigger = "other" } = {}) {
   const requestId = radarLoadRequestId + 1;
   const location = { ...selectedLocation };
   radarLoadRequestId = requestId;
@@ -4616,7 +4760,16 @@ function createRadarLoadContext({ forceRefresh = true } = {}) {
     radarModeId: activeBuienradarRadarModeId,
     rainSourceMode: activeRainSourceMode,
     forceRefresh,
+    trigger,
+    radarTiming: createRadarTimingSession(),
   };
+}
+
+function hasUsableRadarDisplay() {
+  return Boolean(
+    displayedRadarSource !== "none"
+    && (radarFrames.length || knmiFrameUrls.length || buienradarFrameUrls.length),
+  );
 }
 
 function isRadarLoadContextCurrent(context) {
@@ -4631,12 +4784,18 @@ function isRadarLoadContextCurrent(context) {
 
 async function loadRadar(options = {}) {
   const context = createRadarLoadContext(options);
-  setRadarMapStatus("Loading rain forecast...");
+  const hadUsableRadar = hasUsableRadarDisplay();
+  if (hadUsableRadar) {
+    markRetainedRadarUsable(context);
+  }
+  setRadarMapStatus(hadUsableRadar ? "Updating rain forecast..." : "Loading rain forecast...");
   updateBuienradarModeControl();
+  let didAttemptBuienradar = false;
 
   if (context.isInNetherlandsRadarBounds) {
     if (isRainSourceCompareEnabled && context.rainSourceMode === "current") {
       try {
+        didAttemptBuienradar = true;
         await loadBuienradarRadar(context);
         if (!isRadarLoadContextCurrent(context)) {
           return;
@@ -4665,6 +4824,7 @@ async function loadRadar(options = {}) {
       }
     } else {
       try {
+        didAttemptBuienradar = true;
         await loadHybridRadar(context);
         if (!isRadarLoadContextCurrent(context)) {
           return;
@@ -4679,29 +4839,42 @@ async function loadRadar(options = {}) {
       }
     }
 
-    try {
-      await loadBuienradarRadar(context);
-      if (!isRadarLoadContextCurrent(context)) {
+    if (!didAttemptBuienradar) {
+      try {
+        await loadBuienradarRadar(context);
+        if (!isRadarLoadContextCurrent(context)) {
+          return;
+        }
+        updateBuienradarModeControl();
         return;
+      } catch (error) {
+        if (!isRadarLoadContextCurrent(context)) {
+          return;
+        }
+        console.warn("Buienradar animation unavailable, falling back to LibreWXR tiles.", error);
       }
-      updateBuienradarModeControl();
-      return;
-    } catch (error) {
-      if (!isRadarLoadContextCurrent(context)) {
-        return;
-      }
-      console.warn("Buienradar animation unavailable, falling back to LibreWXR tiles.", error);
     }
   }
 
   try {
     await loadLibreWxrRadar(context);
+    if (isRadarLoadContextCurrent(context) && context.isInNetherlandsRadarBounds) {
+      markFirstUsableRadar(context, "librewxr");
+      reportRadarTiming(context, "librewxr_fallback");
+    }
   } catch (error) {
     if (!isRadarLoadContextCurrent(context)) {
       return;
     }
     console.error(error);
-    disableRadar("Radar unavailable");
+    if (context.isInNetherlandsRadarBounds) {
+      reportRadarTiming(context, hadUsableRadar ? "retained" : "unavailable");
+    }
+    if (hadUsableRadar) {
+      setRadarMapStatus("Radar update delayed", { isError: true });
+    } else {
+      disableRadar("Radar unavailable");
+    }
   } finally {
     if (isRadarLoadContextCurrent(context)) {
       updateBuienradarModeControl();
@@ -4733,57 +4906,336 @@ async function loadHybridRadar(context) {
   knmiDisplayRequestId = knmiRequestId;
   buienradarDisplayRequestId = buienradarRequestId;
 
-  const [knmiResult, buienradarResult] = await Promise.allSettled([
-    fetchKnmiRadar({ forceRefresh: context.forceRefresh }),
-    fetchBuienradarRadarMode(radarModeId, { forceRefresh: context.forceRefresh }),
-  ]);
+  const state = {};
+  const request = {
+    buienradarRequestId,
+    context,
+    knmiRequestId,
+    radarModeId,
+    retainedSources: captureRetainedHybridRadarSources(radarModeId),
+    state,
+  };
+  const knmiResultPromise = settleHybridRadarRequest(
+    context,
+    "knmi",
+    fetchKnmiRadar({ forceRefresh: context.forceRefresh, timing: context.radarTiming }),
+    state,
+  );
+  const buienradarResultPromise = settleHybridRadarRequest(
+    context,
+    "buienradar",
+    fetchBuienradarRadarMode(radarModeId, { forceRefresh: context.forceRefresh, timing: context.radarTiming }),
+    state,
+  );
+  request.resultPromises = [knmiResultPromise, buienradarResultPromise];
 
-  if (
-    !isRadarLoadContextCurrent(context)
-    || knmiRequestId !== knmiDisplayRequestId
-    || buienradarRequestId !== buienradarDisplayRequestId
-    || activeBuienradarRadarModeId !== radarModeId
-    || !isKnmiPrimaryRadarModeActive()
-    || !isInBuienradarBounds(selectedLocation)
-  ) {
+  if (hasUsableRadarDisplay()) {
+    void refreshRetainedHybridRadar(request).catch((error) => {
+      if (!isHybridRadarRequestCurrent(request)) {
+        return;
+      }
+
+      console.warn("Could not update the Netherlands radar.", error);
+      setRadarMapStatus("Radar update delayed", { isError: true });
+    });
     return;
   }
 
-  const knmiRadar = knmiResult.status === "fulfilled" ? knmiResult.value : undefined;
-  const buienradarRadar = buienradarResult.status === "fulfilled" ? buienradarResult.value : undefined;
+  const firstResult = await waitForPreferredHybridRadar(request);
+  if (!isHybridRadarRequestCurrent(request)) {
+    return;
+  }
 
-  if (knmiRadar && buienradarRadar) {
-    displayHybridRadar(knmiRadar, buienradarRadar);
+  if (!firstResult) {
+    throw state.knmi?.reason
+      || state.buienradar?.reason
+      || new Error("No Netherlands radar source available");
+  }
+
+  if (hasBothFreshHybridSources(state)) {
+    displayHybridRadar(state.knmi.radar, state.buienradar.radar, { preserveSelection: false });
+    markFirstUsableRadar(context, "hybrid");
+    markRadarTiming(context.radarTiming, "hybrid_ready_ms");
     scheduleInactiveBuienradarRadarPreload();
+    reportRadarTiming(context, "hybrid");
     return;
   }
 
-  if (knmiRadar) {
-    displayKnmiRadar(knmiRadar);
-    return;
-  }
-
-  if (buienradarRadar) {
-    displayBuienradarRadar(buienradarRadar);
+  displayFreshRadarResult(firstResult, { preserveSelection: false });
+  markFirstUsableRadar(context, firstResult.source);
+  if (firstResult.source === "buienradar") {
     scheduleInactiveBuienradarRadarPreload();
-    return;
   }
 
-  throw knmiResult.reason || buienradarResult.reason || new Error("No Netherlands radar source available");
+  void finishProgressiveHybridRadar(request).catch((error) => {
+    if (isHybridRadarRequestCurrent(request)) {
+      console.warn("Could not complete the hybrid radar.", error);
+    }
+  });
 }
 
-async function fetchBuienradarRadarMode(radarModeId, { forceRefresh = false } = {}) {
+function settleHybridRadarRequest(context, source, promise, state) {
+  return promise.then(
+    (radar) => {
+      const result = { radar, source, status: "fulfilled" };
+      state[source] = result;
+      markRadarTiming(context.radarTiming, `${source}_ready_ms`);
+      markRadarTiming(context.radarTiming, `${source}_settled_ms`);
+      setRadarTimingStatus(context.radarTiming, source, "success");
+      return result;
+    },
+    (reason) => {
+      const result = { reason, source, status: "rejected" };
+      state[source] = result;
+      markRadarTiming(context.radarTiming, `${source}_settled_ms`);
+      setRadarTimingStatus(context.radarTiming, source, "failure");
+      return result;
+    },
+  );
+}
+
+function isHybridRadarRequestCurrent(request) {
+  return Boolean(
+    request
+    && isRadarLoadContextCurrent(request.context)
+    && request.knmiRequestId === knmiDisplayRequestId
+    && request.buienradarRequestId === buienradarDisplayRequestId
+    && request.radarModeId === activeBuienradarRadarModeId
+    && isKnmiPrimaryRadarModeActive()
+    && isInBuienradarBounds(selectedLocation),
+  );
+}
+
+function waitForRadarPreferenceDelay(delayMs) {
+  return new Promise((resolve) => {
+    window.setTimeout(() => resolve({ source: "deadline", status: "deadline" }), delayMs);
+  });
+}
+
+async function waitForPreferredHybridRadar(request) {
+  const [knmiResultPromise, buienradarResultPromise] = request.resultPromises;
+  const preferredResult = await Promise.race([
+    knmiResultPromise,
+    waitForRadarPreferenceDelay(knmiPreferredRadarWaitMs),
+  ]);
+
+  if (preferredResult.status === "fulfilled") {
+    return preferredResult;
+  }
+
+  if (preferredResult.status === "rejected") {
+    return waitForFirstSuccessfulRadar([buienradarResultPromise]);
+  }
+
+  if (request.state.buienradar?.status === "fulfilled") {
+    return request.state.buienradar;
+  }
+
+  return waitForFirstSuccessfulRadar(request.resultPromises);
+}
+
+function waitForFirstSuccessfulRadar(resultPromises) {
+  return new Promise((resolve) => {
+    let remaining = resultPromises.length;
+    let isResolved = false;
+
+    resultPromises.forEach((resultPromise) => {
+      resultPromise.then((result) => {
+        if (isResolved) {
+          return;
+        }
+
+        if (result.status === "fulfilled") {
+          isResolved = true;
+          resolve(result);
+          return;
+        }
+
+        remaining -= 1;
+        if (remaining <= 0) {
+          isResolved = true;
+          resolve(undefined);
+        }
+      });
+    });
+  });
+}
+
+function hasBothFreshHybridSources(state) {
+  return state.knmi?.status === "fulfilled" && state.buienradar?.status === "fulfilled";
+}
+
+function displayFreshRadarResult(result, { preserveSelection = true } = {}) {
+  if (result.source === "knmi") {
+    displayKnmiRadar(result.radar, { preserveSelection });
+    return;
+  }
+
+  displayBuienradarRadar(result.radar, { preserveSelection });
+}
+
+async function finishProgressiveHybridRadar(request) {
+  await Promise.all(request.resultPromises);
+  if (!isHybridRadarRequestCurrent(request)) {
+    return;
+  }
+
+  const { context, state } = request;
+  if (hasBothFreshHybridSources(state)) {
+    displayHybridRadar(state.knmi.radar, state.buienradar.radar, { preserveSelection: true });
+    markRadarTiming(context.radarTiming, "hybrid_ready_ms");
+    scheduleInactiveBuienradarRadarPreload();
+    reportRadarTiming(context, "hybrid");
+    updateBuienradarModeControl();
+    return;
+  }
+
+  reportRadarTiming(
+    context,
+    state.knmi?.status === "fulfilled" ? "knmi_only" : "buienradar_only",
+  );
+  updateBuienradarModeControl();
+}
+
+function captureRetainedHybridRadarSources(radarModeId) {
+  const retainedSources = {};
+  if (
+    (displayedRadarSource === "hybrid" || displayedRadarSource === "knmi")
+    && knmiFrameUrls.length
+    && knmiFrameDates.length
+  ) {
+    retainedSources.knmi = {
+      modeId: knmiRadarConfig.modeId,
+      frameUrls: knmiFrameUrls,
+      frameDates: knmiFrameDates,
+      referenceDate: knmiReferenceDate,
+      startDate: knmiStartDate,
+      timeline: {
+        ...knmiRadarConfig.timeline,
+        frameCount: knmiFrameUrls.length,
+      },
+    };
+  }
+
+  if (
+    (displayedRadarSource === "hybrid" || displayedRadarSource === "buienradar")
+    && buienradarFrameUrls.length
+    && loadedBuienradarRadarModeId === radarModeId
+  ) {
+    retainedSources.buienradar = {
+      modeId: loadedBuienradarRadarModeId,
+      frameUrls: buienradarFrameUrls,
+      startDate: buienradarStartDate,
+      timeline: { ...buienradarTimeline },
+    };
+  }
+
+  return retainedSources;
+}
+
+function displayAvailableRetainedRadar(request) {
+  const { retainedSources, state } = request;
+  const freshKnmiRadar = state.knmi?.status === "fulfilled" ? state.knmi.radar : undefined;
+  const freshBuienradarRadar = state.buienradar?.status === "fulfilled" ? state.buienradar.radar : undefined;
+  const availableKnmiRadar = freshKnmiRadar || retainedSources.knmi;
+  const availableBuienradarRadar = freshBuienradarRadar || retainedSources.buienradar;
+
+  if (availableKnmiRadar && availableBuienradarRadar) {
+    displayHybridRadar(availableKnmiRadar, availableBuienradarRadar, {
+      prepareBuienradarSamples: Boolean(freshBuienradarRadar),
+      prepareKnmiSamples: Boolean(freshKnmiRadar),
+      preserveSelection: true,
+    });
+    return freshKnmiRadar && freshBuienradarRadar ? "fresh_hybrid" : "retained_hybrid";
+  }
+
+  if (freshKnmiRadar) {
+    displayKnmiRadar(freshKnmiRadar, { preserveSelection: true });
+    return "knmi";
+  }
+
+  if (freshBuienradarRadar) {
+    displayBuienradarRadar(freshBuienradarRadar, { preserveSelection: true });
+    return "buienradar";
+  }
+
+  return "retained";
+}
+
+function getRetainedRadarTimingOutcome(request) {
+  const { retainedSources, state } = request;
+  if (hasBothFreshHybridSources(state)) {
+    return "hybrid";
+  }
+  if (state.knmi?.status === "fulfilled") {
+    return retainedSources.buienradar ? "knmi_fresh_retained_buienradar" : "knmi_only";
+  }
+  if (state.buienradar?.status === "fulfilled") {
+    return retainedSources.knmi ? "buienradar_fresh_retained_knmi" : "buienradar_only";
+  }
+  return "retained";
+}
+
+async function refreshRetainedHybridRadar(request) {
+  const firstResult = await waitForFirstSuccessfulRadar(request.resultPromises);
+  if (!isHybridRadarRequestCurrent(request)) {
+    return;
+  }
+
+  const { context, state } = request;
+  if (!firstResult) {
+    setRadarMapStatus("Radar update delayed", { isError: true });
+    reportRadarTiming(context, "retained");
+    updateBuienradarModeControl();
+    return;
+  }
+
+  const firstDisplay = displayAvailableRetainedRadar(request);
+  markFirstUsableRadar(context, firstResult.source);
+  if (!state.knmi || !state.buienradar) {
+    setRadarMapStatus("Updating rain forecast...");
+  } else if (!hasBothFreshHybridSources(state)) {
+    setRadarMapStatus("Radar update delayed", { isError: true });
+  }
+
+  await Promise.all(request.resultPromises);
+  if (!isHybridRadarRequestCurrent(request)) {
+    return;
+  }
+
+  if (hasBothFreshHybridSources(state)) {
+    if (firstDisplay !== "fresh_hybrid") {
+      displayHybridRadar(state.knmi.radar, state.buienradar.radar, { preserveSelection: true });
+    }
+    markRadarTiming(context.radarTiming, "hybrid_ready_ms");
+  }
+  if (!hasBothFreshHybridSources(state)) {
+    setRadarMapStatus("Radar update delayed", { isError: true });
+  }
+
+  if (state.buienradar?.status === "fulfilled") {
+    scheduleInactiveBuienradarRadarPreload();
+  }
+
+  reportRadarTiming(context, getRetainedRadarTimingOutcome(request));
+  updateBuienradarModeControl();
+}
+
+async function fetchBuienradarRadarMode(radarModeId, { forceRefresh = false, timing } = {}) {
   const cachedRadar = getFreshBuienradarRadarCache(radarModeId);
   if (!forceRefresh && cachedRadar) {
+    setRadarTimingPath(timing, "buienradar", "cache");
     return cachedRadar;
   }
 
   const existingRequest = buienradarRadarRequests.get(radarModeId);
   if (existingRequest) {
+    setRadarTimingPath(timing, "buienradar", "inflight");
     return existingRequest;
   }
 
-  const request = downloadBuienradarRadarMode(radarModeId)
+  setRadarTimingPath(timing, "buienradar", "network");
+  const request = downloadBuienradarRadarMode(radarModeId, timing)
     .then((radar) => {
       cacheBuienradarRadar(radar);
       return radar;
@@ -4796,25 +5248,50 @@ async function fetchBuienradarRadarMode(radarModeId, { forceRefresh = false } = 
   return request;
 }
 
-async function downloadBuienradarRadarMode(radarModeId) {
+async function downloadBuienradarRadarMode(radarModeId, timing) {
   const radarMode = getBuienradarRadarMode(radarModeId);
-  const response = await fetch(buildBuienradarAnimationUrl(radarMode), { cache: "no-store" });
-  if (!response.ok) {
-    throw new Error(`Buienradar responded with ${response.status}`);
+  const controller = new AbortController();
+  const downloadStartedAt = getRadarTimingNow();
+  const timeout = window.setTimeout(() => controller.abort(), buienradarRadarTimeoutMs);
+  let response;
+  let buffer;
+  try {
+    response = await fetch(buildBuienradarAnimationUrl(radarMode), {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`Buienradar responded with ${response.status}`);
+    }
+    buffer = await response.arrayBuffer();
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error("Buienradar radar timed out");
+    }
+    throw error;
+  } finally {
+    markRadarTimingDuration(timing, "buienradar_download_ms", downloadStartedAt);
+    window.clearTimeout(timeout);
   }
 
-  const buffer = await response.arrayBuffer();
   const imageType = response.headers.get("content-type") || "image/gif";
   const startDate = parseBuienradarStartDate(response.url) || roundToNextFiveMinutes(new Date());
-  const timeline = parseGifTimeline(buffer);
-  let frameUrls = await decodeBuienradarFrames(buffer, imageType);
-  if (!frameUrls.length) {
-    const stillFrameUrl = await decodeBuienradarStillFrame(buffer, imageType);
-    frameUrls = stillFrameUrl ? [stillFrameUrl] : [];
-  }
+  const decodeStartedAt = getRadarTimingNow();
+  let frameUrls;
+  let timeline;
+  try {
+    timeline = parseGifTimeline(buffer);
+    frameUrls = await decodeBuienradarFrames(buffer, imageType);
+    if (!frameUrls.length) {
+      const stillFrameUrl = await decodeBuienradarStillFrame(buffer, imageType);
+      frameUrls = stillFrameUrl ? [stillFrameUrl] : [];
+    }
 
-  if (!frameUrls.length) {
-    throw new Error("Buienradar animation could not be decoded");
+    if (!frameUrls.length) {
+      throw new Error("Buienradar animation could not be decoded");
+    }
+  } finally {
+    markRadarTimingDuration(timing, "buienradar_decode_ms", decodeStartedAt);
   }
 
   await preloadImage(frameUrls[0]);
@@ -4843,16 +5320,19 @@ async function loadKnmiRadar(context) {
   displayKnmiRadar(radar);
 }
 
-async function fetchKnmiRadar({ forceRefresh = false } = {}) {
+async function fetchKnmiRadar({ forceRefresh = false, timing } = {}) {
   if (!forceRefresh && isFreshKnmiRadar(knmiRadarCache)) {
+    setRadarTimingPath(timing, "knmi", "cache");
     return knmiRadarCache;
   }
 
   if (knmiRadarRequest) {
+    setRadarTimingPath(timing, "knmi", "inflight");
     return knmiRadarRequest;
   }
 
-  knmiRadarRequest = downloadKnmiRadar()
+  setRadarTimingPath(timing, "knmi", "network");
+  knmiRadarRequest = downloadKnmiRadar(timing)
     .then((radar) => {
       knmiRadarCache = radar;
       return radar;
@@ -4864,8 +5344,8 @@ async function fetchKnmiRadar({ forceRefresh = false } = {}) {
   return knmiRadarRequest;
 }
 
-async function downloadKnmiRadar() {
-  const metadata = await fetchKnmiRadarMetadata();
+async function downloadKnmiRadar(timing) {
+  const metadata = await fetchKnmiRadarMetadata({ timing });
   const frameDates = getKnmiRadarFrameDates(metadata.referenceDate, metadata.endDate);
   const frameUrls = frameDates.map((date) => buildKnmiRadarImageUrl(date, metadata.referenceDate));
 
@@ -4873,7 +5353,11 @@ async function downloadKnmiRadar() {
     throw new Error("KNMI radar returned no usable frames");
   }
 
-  await preloadKnmiFrameImage(frameUrls[0], { timeoutMs: knmiRadarImageLoadTimeoutMs });
+  const isFirstFrameLoaded = await preloadKnmiFrameImage(frameUrls[0], { timeoutMs: knmiRadarImageLoadTimeoutMs });
+  if (!isFirstFrameLoaded) {
+    throw new Error("KNMI radar first frame did not load");
+  }
+  markRadarTiming(timing, "knmi_first_frame_ready_ms");
   queueKnmiFramePreload(frameUrls);
 
   return {
@@ -4890,16 +5374,19 @@ async function downloadKnmiRadar() {
   };
 }
 
-async function fetchKnmiRadarMetadata({ forceRefresh = false } = {}) {
+async function fetchKnmiRadarMetadata({ forceRefresh = false, timing } = {}) {
   if (!forceRefresh && isFreshKnmiRadarMetadata(knmiRadarMetadataCache)) {
+    setRadarTimingPath(timing, "knmi_metadata", "cache");
     return knmiRadarMetadataCache;
   }
 
   if (knmiRadarMetadataRequest) {
+    setRadarTimingPath(timing, "knmi_metadata", "inflight");
     return knmiRadarMetadataRequest;
   }
 
-  knmiRadarMetadataRequest = downloadKnmiRadarMetadata()
+  setRadarTimingPath(timing, "knmi_metadata", "network");
+  knmiRadarMetadataRequest = downloadKnmiRadarMetadata(timing)
     .then((metadata) => {
       knmiRadarMetadataCache = metadata;
       return metadata;
@@ -4911,17 +5398,28 @@ async function fetchKnmiRadarMetadata({ forceRefresh = false } = {}) {
   return knmiRadarMetadataRequest;
 }
 
-async function downloadKnmiRadarMetadata() {
-  let response;
+async function downloadKnmiRadarMetadata(timing) {
+  const metadataStartedAt = getRadarTimingNow();
   try {
-    response = await fetchWithTimeout(buildKnmiWmsUrl({
+    return await downloadKnmiRadarMetadataResponse();
+  } finally {
+    markRadarTimingDuration(timing, "knmi_metadata_ms", metadataStartedAt);
+  }
+}
+
+async function downloadKnmiRadarMetadataResponse() {
+  let response;
+  let text;
+  try {
+    ({ response, body: text } = await fetchBodyWithTimeout(buildKnmiWmsUrl({
       dataset: knmiRadarConfig.dataset,
       service: "WMS",
       request: "GetCapabilities",
     }), {
       cache: "no-store",
       timeoutMs: knmiRadarMetadataTimeoutMs,
-    });
+      readBody: (nextResponse) => nextResponse.text(),
+    }));
   } catch (error) {
     if (error?.name === "AbortError") {
       throw new Error("KNMI radar capabilities timed out");
@@ -4934,7 +5432,6 @@ async function downloadKnmiRadarMetadata() {
     throw new Error(`KNMI radar capabilities responded with ${response.status}`);
   }
 
-  const text = await response.text();
   const documentXml = new DOMParser().parseFromString(text, "application/xml");
   const dimensions = getXmlElementsByLocalName(documentXml, "Dimension");
   const timeDimension = dimensions.find((dimension) => dimension.getAttribute("name") === "time");
@@ -4965,21 +5462,26 @@ function isFreshKnmiRadarMetadata(metadata) {
   );
 }
 
-async function fetchWithTimeout(url, { timeoutMs, ...options } = {}) {
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-    return fetch(url, options);
-  }
-
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+async function fetchBodyWithTimeout(url, { readBody, timeoutMs, ...options } = {}) {
+  const hasTimeout = Number.isFinite(timeoutMs) && timeoutMs > 0;
+  const controller = hasTimeout ? new AbortController() : undefined;
+  const timeout = controller
+    ? window.setTimeout(() => controller.abort(), timeoutMs)
+    : undefined;
 
   try {
-    return await fetch(url, {
+    const response = await fetch(url, {
       ...options,
-      signal: controller.signal,
+      ...(controller ? { signal: controller.signal } : {}),
     });
+    const body = response.ok && typeof readBody === "function"
+      ? await readBody(response)
+      : undefined;
+    return { response, body };
   } finally {
-    window.clearTimeout(timeout);
+    if (timeout !== undefined) {
+      window.clearTimeout(timeout);
+    }
   }
 }
 
@@ -5017,7 +5519,42 @@ function getKnmiRadarFrameDates(startDate, endDate) {
   return dates;
 }
 
-function displayKnmiRadar(radar) {
+function captureRadarDisplaySelection(shouldPreserveSelection) {
+  if (!shouldPreserveSelection) {
+    return undefined;
+  }
+
+  const sliderValue = Number(elements.radarSlider.value) || 0;
+  const selectedDate = getRadarDateForSlider(sliderValue);
+  return {
+    selectedDate: selectedDate instanceof Date && !Number.isNaN(selectedDate.getTime())
+      ? new Date(selectedDate)
+      : undefined,
+    wasAtStart: radarSliderWasAtStart !== false,
+  };
+}
+
+function restoreRadarDisplaySelection(selection, renderPosition) {
+  let sliderValue = 0;
+  if (selection && !selection.wasAtStart && selection.selectedDate) {
+    const mappedValue = getRadarSliderValueForDate(selection.selectedDate);
+    if (Number.isFinite(mappedValue)) {
+      sliderValue = clampNumber(
+        mappedValue,
+        getRadarSliderMin(),
+        Number(elements.radarSlider.max) || 0,
+      );
+    }
+  }
+
+  sliderValue = Math.round(sliderValue);
+  elements.radarSlider.value = String(sliderValue);
+  radarSliderWasAtStart = selection ? selection.wasAtStart && isRadarSliderAtStart(sliderValue) : true;
+  renderPosition(sliderValue);
+}
+
+function displayKnmiRadar(radar, { preserveSelection = false } = {}) {
+  const selection = captureRadarDisplaySelection(preserveSelection);
   clearLibreWxrRadar();
   clearBuienradarLayers();
   clearKnmiLayers();
@@ -5033,10 +5570,8 @@ function displayKnmiRadar(radar) {
   elements.radarSlider.min = "0";
   elements.radarSlider.max = String(Math.max((radar.frameUrls.length - 1) * 100, 0));
   elements.radarSlider.step = "1";
-  elements.radarSlider.value = "0";
-  radarSliderWasAtStart = true;
   elements.radarTime.classList.remove("error");
-  setKnmiFramePosition(0);
+  restoreRadarDisplaySelection(selection, setKnmiFramePosition);
   updateSliderTimestamps();
   renderPrecipitationTimeline();
   prepareKnmiRainSamples(radar);
@@ -5044,7 +5579,12 @@ function displayKnmiRadar(radar) {
   refreshMapSize();
 }
 
-function displayHybridRadar(knmiRadar, buienradarRadar) {
+function displayHybridRadar(knmiRadar, buienradarRadar, {
+  prepareBuienradarSamples = true,
+  prepareKnmiSamples = true,
+  preserveSelection = false,
+} = {}) {
+  const selection = captureRadarDisplaySelection(preserveSelection);
   clearLibreWxrRadar();
   clearBuienradarLayers();
   clearKnmiLayers();
@@ -5075,23 +5615,26 @@ function displayHybridRadar(knmiRadar, buienradarRadar) {
   elements.radarSlider.min = "0";
   elements.radarSlider.max = String(maxValue);
   elements.radarSlider.step = "1";
-  elements.radarSlider.value = "0";
-  radarSliderWasAtStart = true;
   elements.radarTime.classList.remove("error");
-  setHybridRadarPosition(0);
+  restoreRadarDisplaySelection(selection, setHybridRadarPosition);
   updateSliderTimestamps();
   renderPrecipitationTimeline();
   clearRadarMapStatus();
   refreshMapSize();
-  prepareKnmiRainSamples(knmiRadar);
-  prepareBuienradarRainSamples(buienradarRadar);
+  if (prepareKnmiSamples) {
+    prepareKnmiRainSamples(knmiRadar);
+  }
+  if (prepareBuienradarSamples) {
+    prepareBuienradarRainSamples(buienradarRadar);
+  }
 
   if (previousFrameUrls !== buienradarFrameUrls && !isBuienradarFrameUrlsCached(previousFrameUrls)) {
     previousFrameUrls.forEach(revokeFrameUrl);
   }
 }
 
-function displayBuienradarRadar(radar) {
+function displayBuienradarRadar(radar, { preserveSelection = false } = {}) {
+  const selection = captureRadarDisplaySelection(preserveSelection);
   clearLibreWxrRadar();
   clearBuienradarLayers();
   clearKnmiLayers();
@@ -5106,7 +5649,6 @@ function displayBuienradarRadar(radar) {
   buienradarTimeline = radar.timeline;
   elements.radarPanel.classList.add("is-animated");
   elements.radarSlider.min = "0";
-  elements.radarSlider.value = "0";
   elements.radarTime.classList.remove("error");
 
   buienradarFrameUrls = radar.frameUrls;
@@ -5117,8 +5659,7 @@ function displayBuienradarRadar(radar) {
   elements.radarSlider.disabled = radar.frameUrls.length < 2;
   elements.radarSlider.max = String(Math.max((buienradarTimeline.frameCount - 1) * 100, 0));
   elements.radarSlider.step = "1";
-  radarSliderWasAtStart = true;
-  setBuienradarFramePosition(0);
+  restoreRadarDisplaySelection(selection, setBuienradarFramePosition);
   updateSliderTimestamps();
   renderPrecipitationTimeline();
   clearRadarMapStatus();
@@ -5131,12 +5672,24 @@ function displayBuienradarRadar(radar) {
 }
 
 async function loadLibreWxrRadar(context) {
-  const response = await fetch(libreWxrRadarUrl);
+  let response;
+  let data;
+  try {
+    ({ response, body: data } = await fetchBodyWithTimeout(libreWxrRadarUrl, {
+      timeoutMs: libreWxrRadarTimeoutMs,
+      readBody: (nextResponse) => nextResponse.json(),
+    }));
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error("LibreWXR radar timed out");
+    }
+    throw error;
+  }
+
   if (!response.ok) {
     throw new Error(`Radar source responded with ${response.status}`);
   }
 
-  const data = await response.json();
   const past = data.radar?.past || [];
   const nowcast = data.radar?.nowcast || [];
   const currentFrame = past[past.length - 1];
@@ -6692,15 +7245,15 @@ function getKnmiPointRainErrorMessage(error) {
 
 async function fetchKnmiPointRainSample(location, date, referenceDate) {
   try {
-    const response = await fetchWithTimeout(buildKnmiPointRainUrl(location, date, referenceDate), {
+    const { response, body: data } = await fetchBodyWithTimeout(buildKnmiPointRainUrl(location, date, referenceDate), {
       cache: "no-store",
       timeoutMs: knmiPointRainTimeoutMs,
+      readBody: (nextResponse) => nextResponse.json(),
     });
     if (!response.ok) {
       throw new Error(`KNMI point rain responded with ${response.status}`);
     }
 
-    const data = await response.json();
     const amount = getKnmiPointRainAmount(data);
     if (!Number.isFinite(amount)) {
       return undefined;
@@ -7299,8 +7852,17 @@ function clearBuienradarRadar() {
   buienradarTimeline = buienradarDefaultTimeline;
   clearBuienradarLayers();
 
+  const cachedFrameUrls = new Set();
+  buienradarRadarCache.forEach((radar) => {
+    radar.frameUrls.forEach((url) => cachedFrameUrls.add(url));
+  });
   buienradarRadarCache.forEach(revokeBuienradarRadar);
   buienradarRadarCache.clear();
+  buienradarFrameUrls.forEach((url) => {
+    if (!cachedFrameUrls.has(url)) {
+      revokeFrameUrl(url);
+    }
+  });
   buienradarRainSamples.clear();
   buienradarRainSampleRuns.clear();
   buienradarFrameUrls = [];
