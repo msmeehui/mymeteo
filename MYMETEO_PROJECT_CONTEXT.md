@@ -146,6 +146,10 @@ The chosen direction is not to add lots of visible warnings. Instead, MyMeteo sh
 - For thunderstorm icons, preserve explicit Open-Meteo thunderstorm weather codes and cautiously upgrade heavy/moderate rain when Open-Meteo CAPE or lightning-potential signals also indicate storm risk. This is a storm-risk hint, not an official warning system.
 - Do not alter the radar animation based on Open-Meteo. The map should remain honest radar data.
 
+For Today, the icon/condition, compact rain value and intensity, precipitation-graph marker, and outfit recommendation should consume one canonical selected-time precipitation state. This selected-time value is intentionally different from the 5-day remaining-day maximum. Inside visible image-radar coverage, the exact-location sample from the same displayed radar-frame generation decides local wet/dry; wider nearby pixels are useful context but are not evidence of rain at the location marker. Samples from the displayed frame generation remain valid while that generation stays onscreen, independent of the shorter cache-freshness limit used to decide whether radar data may be reused for a later load. Between two image frames, rain signals should use the same temporal interpolation as the map crossfade.
+
+Open-Meteo hourly precipitation fields describe the preceding hour, so the selected-time precipitation fallback should use the interval ending after the selected instant. Instantaneous fields such as weather code, temperature, and wind should continue to use the nearest forecast hour.
+
 The current implementation uses blend constants in `app.js` around `knmiRadarConfig.maxLookaheadHours`, `buienradarPointRainMaxLookaheadHours`, `buienradarBlendMaxLookaheadHours`, `buienradarBlendFullWeightHours`, and related sampling settings. These can be tuned if live use shows overcorrection or undercorrection.
 
 The About/Data Sources section and README mention that near-term rain chance in the Netherlands is Open-Meteo adjusted with KNMI point rain data for the first 2 hours, then Buienradar point/radar data toward the 8-hour limit.

@@ -1,8 +1,9 @@
 {
   "scripts": {
-    "test": "npm run test:outfits && npm run test:loading",
+    "test": "npm run test:outfits && npm run test:loading && npm run test:precipitation",
     "test:loading": "node tools/test-loading-races.mjs",
-    "test:outfits": "node tools/test-outfit-states.mjs"
+    "test:outfits": "node tools/test-outfit-states.mjs",
+    "test:precipitation": "node tools/test-precipitation-consistency.mjs"
   },
   "devDependencies": {
     "playwright": "^1.60.0"

@@ -727,6 +727,7 @@ let knmiReferenceDate;
 let knmiRainSamples;
 let knmiRainSampleRun;
 let knmiDisplayRequestId = 0;
+let knmiFrameRenderRequestId = 0;
 let hybridRadarStartDate;
 let hybridRadarEndDate;
 let hybridRadarKnmiEndDate;
@@ -2486,7 +2487,7 @@ function renderCurrentTemperatureRange(temperatureRange) {
 }
 
 function renderCurrentPrecipitation(precipitation) {
-  const scopeLabel = precipitation.scopeLabel || "Remaining today";
+  const scopeLabel = precipitation.scopeLabel || "Selected time";
   elements.currentPrecipLabel.textContent = precipitation.label;
   elements.currentPrecipitationValue.classList.toggle("is-dry", isPrecipitationDisplayDry(precipitation));
   elements.rainTotal.title = precipitation.ariaLabel;
@@ -2581,12 +2582,10 @@ function buildPrecipitationTimelineSample(date, range) {
     return undefined;
   }
 
-  const index = getClosestTimeIndex(hourly.time, date.getTime() / 1000);
-  if (index < 0) {
+  const precipitation = getSelectedTimePrecipitation(date);
+  if (!precipitation) {
     return undefined;
   }
-
-  const precipitation = buildTimelineHourlyPrecipitation(hourly, index, date);
   const rangeDuration = range.end.getTime() - range.start.getTime();
   return {
     date,
@@ -2596,31 +2595,6 @@ function buildPrecipitationTimelineSample(date, range) {
       ? ((date.getTime() - range.start.getTime()) / rangeDuration) * precipitationTimelineSvgWidth
       : 0,
   };
-}
-
-function buildTimelineHourlyPrecipitation(hourly, index, date) {
-  const weatherCode = hourly?.weather_code?.[index];
-  const forecastTime = date.getTime() / 1000;
-  const precipitation = buildBasePrecipitationChance({
-    chance: hourly?.precipitation_probability?.[index],
-    weatherCode,
-    rainAmount: hourly?.rain?.[index],
-    showersAmount: hourly?.showers?.[index],
-    snowfallAmount: hourly?.snowfall?.[index],
-    temperature: hourly?.temperature_2m?.[index],
-    stormSignal: getStormSignalForForecastTime(forecastTime, { hourly, index }),
-    includeIntensity: true,
-  });
-  const radarAdjustment = getPrecipitationTimelineRadarAdjustment(date);
-
-  if (radarAdjustment) {
-    return buildRadarImageTimelinePrecipitation(precipitation, radarAdjustment);
-  }
-
-  return withBuienradarPrecipitationAdjustment(precipitation, forecastTime, {
-    includeIntensity: true,
-    radarSampleMode: "instant",
-  });
 }
 
 function getPrecipitationTimelineRadarAdjustment(date) {
@@ -2648,14 +2622,14 @@ function getPrecipitationTimelineRadarAdjustment(date) {
 function getPrecipitationTimelineRadarSampleSeries(date) {
   if (displayedRadarSource === "hybrid") {
     if (shouldUseKnmiForHybridDate(date)) {
-      return getBestKnmiImageRainSampleSeries(date);
+      return getDisplayedKnmiImageRainSampleSeries(date);
     }
 
     return getDisplayedBuienradarImageRainSampleSeries(date);
   }
 
   if (displayedRadarSource === "knmi") {
-    return getBestKnmiImageRainSampleSeries(date);
+    return getDisplayedKnmiImageRainSampleSeries(date);
   }
 
   if (displayedRadarSource === "buienradar") {
@@ -2666,15 +2640,27 @@ function getPrecipitationTimelineRadarSampleSeries(date) {
 }
 
 function buildRadarImageTimelinePrecipitation(precipitation, adjustment) {
-  const shouldUseCoverageWeightedSignal = isRadarImageAdjustmentSource(adjustment.source);
-  const radarIntensitySignal = shouldUseCoverageWeightedSignal && Number.isFinite(adjustment.signal)
-    ? adjustment.signal
+  const shouldUseExactLocalSignal = (
+    isRadarImageAdjustmentSource(adjustment.source)
+    && Number.isFinite(adjustment.exactSignal)
+  );
+  const radarIntensitySignal = shouldUseExactLocalSignal
+    ? adjustment.exactSignal
     : (Number.isFinite(adjustment.intensitySignal) ? adjustment.intensitySignal : adjustment.signal);
   const isDry = (
     getPrecipitationIntensityRank(getBuienradarPrecipitationIntensity(radarIntensitySignal)) <= 0
-    || adjustment.signal <= buienradarDrySignalThreshold
+    || radarIntensitySignal <= buienradarDrySignalThreshold
   );
-  const chance = isDry ? 0 : clampNumber(adjustment.chance, 0, 100);
+  const localChance = shouldUseExactLocalSignal
+    ? getBuienradarSignalChance({
+      signal: adjustment.exactSignal,
+      exactSignal: adjustment.exactSignal,
+      nearbySignal: 0,
+    })
+    : adjustment.chance;
+  const chance = isDry
+    ? 0
+    : clampNumber(Math.max(localChance, precipitationConditionChanceThreshold), 0, 100);
   const displayChance = roundRainChanceForDisplay(chance);
   const amount = isDry ? 0 : getBuienradarEquivalentPrecipitationAmount(radarIntensitySignal);
   const radarIntensity = isDry ? undefined : getBuienradarPrecipitationIntensity(radarIntensitySignal);
@@ -2685,19 +2671,34 @@ function buildRadarImageTimelinePrecipitation(precipitation, adjustment) {
       amount,
       intensity: radarIntensity,
     }, displayChance);
+  const modelDisplayChance = Number.isFinite(precipitation.chance)
+    ? roundRainChanceForDisplay(precipitation.chance)
+    : undefined;
+  const isRadarAdjusted = modelDisplayChance !== displayChance
+    || intensity !== precipitation.intensity;
   const adjustedPrecipitation = {
     ...precipitation,
     value: formatOptionalRainChance(chance),
     chance,
     amount,
     intensity,
-    isRadarAdjusted: true,
+    hasRadarEvidence: true,
+    isRadarAdjusted,
     radarAdjustment: {
       source: adjustment.source,
-      chance: adjustment.chance,
-      signal: adjustment.signal,
+      chance,
+      sourceChance: adjustment.chance,
+      signal: radarIntensitySignal,
+      combinedSignal: adjustment.signal,
       intensitySignal: adjustment.intensitySignal,
       intensityRank: adjustment.intensityRank,
+      exactSignal: adjustment.exactSignal,
+      nearbySignal: adjustment.nearbySignal,
+      exactCoverage: adjustment.exactCoverage,
+      nearbyCoverage: adjustment.nearbyCoverage,
+      exactIntensityRank: adjustment.exactIntensityRank,
+      nearbyIntensityRank: adjustment.nearbyIntensityRank,
+      localWet: !isDry,
       intensity: radarIntensity,
       weight: adjustment.weight,
       sampleMode: adjustment.sampleMode,
@@ -2738,7 +2739,7 @@ function getPrecipitationTimelineLevel(precipitation) {
   }
 
   const radarSignal = isRadarImageAdjustmentSource(precipitation.radarAdjustment?.source)
-    ? precipitation.radarAdjustment?.signal
+    ? (precipitation.radarAdjustment?.exactSignal ?? precipitation.radarAdjustment?.signal)
     : precipitation.radarAdjustment?.intensitySignal;
   if (Number.isFinite(radarSignal) && radarSignal > 0) {
     return clampNumber(radarSignal, 0.14, 1);
@@ -2948,17 +2949,32 @@ function renderRainSourceDebugPanel({ date = getSelectedWeatherDate(), precipita
 
   const effectiveDate = getEffectiveBuienradarForecastDate(date, "instant");
   const modelPrecipitation = getClosestHourlyModelPrecipitation(date);
+  const timelineSample = getClosestPrecipitationTimelineSample(date);
   const buienradarPointAdjustment = getBuienradarPointAdjustmentForDate(effectiveDate, "instant");
   const buienradarImageAdjustment = getBuienradarImageAdjustmentForDate(effectiveDate, "instant");
   const knmiAdjustment = getKnmiAdjustmentForDate(effectiveDate, "instant");
+  const knmiImageAdjustment = getBuienradarAdjustmentFromSampleSeries(
+    getBestKnmiImageRainSampleSeries(effectiveDate),
+    effectiveDate,
+    "instant",
+    {
+      maxLookaheadHours: knmiRadarConfig.maxLookaheadHours,
+      source: "knmi-image",
+      weight: 1,
+    },
+  );
   const rows = [
     createRainSourceDebugItem(
-      `Final ${getRainSourceModeShortLabel(activeRainSourceMode)}`,
+      "Selected final",
       ...getRainSourcePrecipitationSummary(precipitation),
     ),
     createRainSourceDebugItem(
+      `Timeline marker ${formatClock(date)}`,
+      ...getRainSourcePrecipitationSummary(timelineSample?.precipitation, "Timeline sample unavailable"),
+    ),
+    createRainSourceDebugItem(
       "Open-Meteo",
-      ...getRainSourcePrecipitationSummary(modelPrecipitation, "Model hour"),
+      ...getRainSourcePrecipitationSummary(modelPrecipitation, "Selected precipitation interval"),
     ),
   ];
 
@@ -2980,6 +2996,10 @@ function renderRainSourceDebugPanel({ date = getSelectedWeatherDate(), precipita
       createRainSourceDebugItem(
         "KNMI point",
         ...getRainSourceAdjustmentSummary(knmiAdjustment, "No KNMI sample", getKnmiPointRainFallbackMeta()),
+      ),
+      createRainSourceDebugItem(
+        "KNMI image",
+        ...getRainSourceAdjustmentSummary(knmiImageAdjustment, "No KNMI image sample"),
       ),
     );
   }
@@ -3012,8 +3032,7 @@ function getClosestHourlyModelPrecipitation(date) {
     return undefined;
   }
 
-  const index = getClosestTimeIndex(hourly.time, date.getTime() / 1000);
-  return index >= 0 ? buildHourlyModelPrecipitation(hourly, index) : undefined;
+  return buildSelectedTimeModelPrecipitation(hourly, date);
 }
 
 function getRainSourcePrecipitationSummary(precipitation, fallbackMeta = "") {
@@ -3028,6 +3047,7 @@ function getRainSourcePrecipitationSummary(precipitation, fallbackMeta = "") {
     precipitation.intensity || (isDry ? "dry" : "light"),
     amount,
     precipitation.radarAdjustment?.source,
+    formatRainSourceLocality(precipitation.radarAdjustment),
   ].filter(Boolean).join(" · ");
 
   return [value, meta || fallbackMeta];
@@ -3047,9 +3067,24 @@ function getRainSourceAdjustmentSummary(adjustment, fallbackValue, fallbackMeta 
     adjustment.intensity || getPrecipitationIntensityByRank(adjustment.intensityRank) || "dry",
     amount,
     Number.isFinite(adjustment.sampleCount) ? `${adjustment.wetSampleCount || 0}/${adjustment.sampleCount} wet` : "",
+    formatRainSourceLocality(adjustment),
   ].filter(Boolean).join(" · ");
 
   return [value, meta];
+}
+
+function formatRainSourceLocality(adjustment) {
+  if (!Number.isFinite(adjustment?.exactSignal) && !Number.isFinite(adjustment?.nearbySignal)) {
+    return "";
+  }
+
+  const exact = Number.isFinite(adjustment.exactSignal)
+    ? `exact ${Math.round(adjustment.exactSignal * 100)}%`
+    : "";
+  const nearby = Number.isFinite(adjustment.nearbySignal)
+    ? `nearby ${Math.round(adjustment.nearbySignal * 100)}%`
+    : "";
+  return [exact, nearby].filter(Boolean).join(" / ");
 }
 
 function formatRainSourceAmount(value, unit) {
@@ -3091,18 +3126,6 @@ function getKnmiPointRainFallbackMeta() {
   return "Waiting for source";
 }
 
-function getRainSourceModeShortLabel(mode) {
-  if (mode === "knmi") {
-    return "KNMI";
-  }
-
-  if (mode === "compare") {
-    return "default";
-  }
-
-  return "current";
-}
-
 function renderSelectedWeather(date = getSelectedWeatherDate()) {
   if (!weatherData) {
     return;
@@ -3114,9 +3137,15 @@ function renderSelectedWeather(date = getSelectedWeatherDate()) {
   const isCurrentTime = !date || Math.abs(date - currentDate) < 30 * 60 * 1000;
   const snapshot = isCurrentTime ? currentSnapshot : getHourlyWeatherSnapshot(date, weatherData.hourly) || currentSnapshot;
   const summaryDate = date || currentDate;
-  const precipitation = buildSelectedDayPrecipitation(weatherData, summaryDate, snapshot);
-  const hourlyPrecipitation = getClosestHourlyPrecipitation(summaryDate);
-  const adjustedWeatherCode = getRadarAdjustedSnapshotWeatherCode(snapshot, summaryDate);
+  const precipitation = getSelectedTimePrecipitation(summaryDate) || {
+    ...buildBasePrecipitationChance({
+      weatherCode: snapshot.weatherCode,
+      temperature: snapshot.temperature,
+      includeIntensity: true,
+    }),
+    scopeLabel: "Selected time",
+  };
+  const adjustedWeatherCode = getRadarAdjustedSnapshotWeatherCode(snapshot, precipitation);
 
   renderCurrentTemperatureRange(buildSelectedDayTemperatureRange(weatherData, summaryDate, snapshot));
   renderCurrentPrecipitation(precipitation);
@@ -3125,7 +3154,7 @@ function renderSelectedWeather(date = getSelectedWeatherDate()) {
   renderTemperatureAndWind(snapshot);
   renderRainSourceDebugPanel({ date: summaryDate, precipitation });
   if (isOutfitMode) {
-    renderOutfitScene(snapshot, hourlyPrecipitation || precipitation, adjustedWeatherCode);
+    renderOutfitScene(snapshot, precipitation, adjustedWeatherCode);
     elements.outfitScene.hidden = false;
   }
 }
@@ -3156,10 +3185,7 @@ function getHourlyWeatherSnapshot(date, hourly) {
     return undefined;
   }
 
-  const precipitation = buildHourlyPrecipitation(hourly, index, {
-    includeIntensity: true,
-  });
-  const weatherCode = getPrecipitationAdjustedWeatherCode(hourly.weather_code?.[index], precipitation);
+  const weatherCode = hourly.weather_code?.[index];
   const isDay = hourly.is_day?.[index] ?? isForecastHourDaytime(hourly.time[index]);
 
   return {
@@ -3192,26 +3218,77 @@ function getClosestTimeIndex(times, targetTime) {
   return closestIndex;
 }
 
-function getRadarAdjustedSnapshotWeatherCode(snapshot, date) {
-  const hourlyPrecipitation = getClosestHourlyPrecipitation(date);
-  return getPrecipitationAdjustedWeatherCode(snapshot.weatherCode, hourlyPrecipitation);
+function getRadarAdjustedSnapshotWeatherCode(snapshot, precipitation) {
+  return getPrecipitationAdjustedWeatherCode(snapshot.weatherCode, precipitation);
 }
 
-function getClosestHourlyPrecipitation(date) {
+function getSelectedTimePrecipitation(date) {
   if (!date || !weatherData?.hourly?.time?.length) {
     return undefined;
   }
 
-  const index = getClosestTimeIndex(weatherData.hourly.time, date.getTime() / 1000);
-  if (index < 0) {
+  return buildSelectedTimePrecipitation(weatherData.hourly, date);
+}
+
+function buildSelectedTimePrecipitation(hourly, date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime()) || !hourly?.time?.length) {
     return undefined;
   }
 
-  return buildHourlyPrecipitation(weatherData.hourly, index, {
+  const forecastTime = date.getTime() / 1000;
+  const precipitation = buildSelectedTimeModelPrecipitation(hourly, date);
+  if (!precipitation) {
+    return undefined;
+  }
+  const radarAdjustment = getPrecipitationTimelineRadarAdjustment(date);
+  const adjustedPrecipitation = radarAdjustment
+    ? buildRadarImageTimelinePrecipitation(precipitation, radarAdjustment)
+    : withBuienradarPrecipitationAdjustment(precipitation, forecastTime, {
+      includeIntensity: true,
+      radarSampleMode: "instant",
+    });
+
+  return {
+    ...adjustedPrecipitation,
+    scopeLabel: "Selected time",
+  };
+}
+
+function buildSelectedTimeModelPrecipitation(hourly, date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime()) || !hourly?.time?.length) {
+    return undefined;
+  }
+
+  const forecastTime = date.getTime() / 1000;
+  const weatherIndex = getClosestTimeIndex(hourly.time, forecastTime);
+  const precipitationIndex = getPrecipitationIntervalTimeIndex(hourly.time, forecastTime);
+  if (weatherIndex < 0 || precipitationIndex < 0) {
+    return undefined;
+  }
+
+  return buildBasePrecipitationChance({
+    chance: hourly.precipitation_probability?.[precipitationIndex],
+    weatherCode: hourly.weather_code?.[weatherIndex],
+    rainAmount: hourly.rain?.[precipitationIndex],
+    showersAmount: hourly.showers?.[precipitationIndex],
+    snowfallAmount: hourly.snowfall?.[precipitationIndex],
+    temperature: hourly.temperature_2m?.[weatherIndex],
+    stormSignal: getStormSignalForForecastTime(forecastTime, { hourly, index: weatherIndex }),
     includeIntensity: true,
-    radarSampleMode: "instant",
-    radarTime: date.getTime() / 1000,
   });
+}
+
+function buildTimelineHourlyPrecipitation(hourly, index, date) {
+  return buildSelectedTimePrecipitation(hourly, date);
+}
+
+function getPrecipitationIntervalTimeIndex(times, targetTime) {
+  if (!times?.length || !Number.isFinite(targetTime)) {
+    return -1;
+  }
+
+  const nextIntervalIndex = times.findIndex((time) => time > targetTime);
+  return nextIntervalIndex >= 0 ? nextIntervalIndex : times.length - 1;
 }
 
 function renderTimedCondition(condition) {
@@ -5924,9 +6001,40 @@ function setKnmiFramePosition(value) {
 }
 
 function renderKnmiFramePosition(framePosition) {
-  const lowerIndex = Math.floor(framePosition);
+  const safeFramePosition = clampNumber(framePosition, 0, Math.max(knmiFrameUrls.length - 1, 0));
+  const lowerIndex = Math.floor(safeFramePosition);
   const upperIndex = Math.min(lowerIndex + 1, knmiFrameUrls.length - 1);
-  const progress = framePosition - lowerIndex;
+  const progress = safeFramePosition - lowerIndex;
+  const frameUrls = knmiFrameUrls;
+  const renderRequestId = knmiFrameRenderRequestId + 1;
+  knmiFrameRenderRequestId = renderRequestId;
+  const requiredFrameIndexes = upperIndex !== lowerIndex && progress > 0
+    ? [lowerIndex, upperIndex]
+    : [lowerIndex];
+  const unloadedFrameUrls = [...new Set(
+    requiredFrameIndexes
+      .map((index) => frameUrls[index])
+      .filter((url) => url && !knmiLoadedFrameUrls.has(url)),
+  )];
+
+  if (unloadedFrameUrls.length) {
+    Promise.all(
+      unloadedFrameUrls.map((url) => preloadKnmiFrameImage(url, { timeoutMs: knmiRadarImageLoadTimeoutMs })),
+    ).then((results) => {
+      if (
+        results.some((isLoaded) => !isLoaded)
+        || renderRequestId !== knmiFrameRenderRequestId
+        || frameUrls !== knmiFrameUrls
+        || (displayedRadarSource !== "knmi" && displayedRadarSource !== "hybrid")
+      ) {
+        return;
+      }
+
+      renderKnmiFramePosition(safeFramePosition);
+    });
+
+    return getKnmiDateForFramePosition(safeFramePosition) || knmiFrameDates[Math.round(safeFramePosition)];
+  }
 
   knmiLayer = setKnmiImageLayer(
     knmiLayer,
@@ -5947,7 +6055,7 @@ function renderKnmiFramePosition(framePosition) {
     knmiNextLayerKey = undefined;
   }
 
-  return getKnmiDateForFramePosition(framePosition) || knmiFrameDates[Math.round(framePosition)];
+  return getKnmiDateForFramePosition(safeFramePosition) || knmiFrameDates[Math.round(safeFramePosition)];
 }
 
 function setHybridRadarPosition(value) {
@@ -7461,8 +7569,11 @@ function getBuienradarAdjustmentFromSampleSeries(
     return undefined;
   }
 
+  const adjustmentSource = source || sampleSeries.source || sampleSeries.modeId;
   const sample = radarSampleMode === "instant"
-    ? getBuienradarInstantRainSignal(sampleSeries, forecastDate)
+    ? (isRadarImageAdjustmentSource(adjustmentSource)
+      ? getRadarImageInstantRainSignal(sampleSeries, forecastDate)
+      : getBuienradarInstantRainSignal(sampleSeries, forecastDate))
     : getBuienradarHourlyRainSignal(sampleSeries, forecastDate);
   if (!sample) {
     return undefined;
@@ -7475,11 +7586,17 @@ function getBuienradarAdjustmentFromSampleSeries(
 
   const blendWeight = Number.isFinite(weight) ? weight : getBuienradarBlendWeight(horizonHours);
   return {
-    source: source || sampleSeries.source || sampleSeries.modeId,
+    source: adjustmentSource,
     chance: sample.chance,
     signal: sample.signal,
     intensitySignal: sample.intensitySignal,
     intensityRank: sample.intensityRank,
+    exactSignal: sample.exactSignal,
+    nearbySignal: sample.nearbySignal,
+    exactCoverage: sample.exactCoverage,
+    nearbyCoverage: sample.nearbyCoverage,
+    exactIntensityRank: sample.exactIntensityRank,
+    nearbyIntensityRank: sample.nearbyIntensityRank,
     sampleMode: radarSampleMode,
     value: sample.value,
     amount: sample.amount,
@@ -7544,19 +7661,33 @@ function getBestKnmiImageRainSampleSeries(forecastDate) {
   return undefined;
 }
 
+function getDisplayedKnmiImageRainSampleSeries(forecastDate) {
+  const locationKey = getBuienradarSampleLocationKey(selectedLocation);
+
+  if (
+    knmiRainSamples?.locationKey === locationKey
+    && knmiRainSamples.frameUrls === knmiFrameUrls
+    && doesBuienradarSampleSeriesCoverForecastDate(knmiRainSamples, forecastDate)
+  ) {
+    return knmiRainSamples;
+  }
+
+  return undefined;
+}
+
 function getDisplayedBuienradarImageRainSampleSeries(forecastDate) {
   const locationKey = getBuienradarSampleLocationKey(selectedLocation);
   const sampleSeries = buienradarRainSamples.get(loadedBuienradarRadarModeId);
 
   if (
     sampleSeries?.locationKey === locationKey
-    && isFreshBuienradarRadar(sampleSeries)
+    && sampleSeries.frameUrls === buienradarFrameUrls
     && doesBuienradarSampleSeriesCoverForecastDate(sampleSeries, forecastDate)
   ) {
     return sampleSeries;
   }
 
-  return getBestBuienradarRainSampleSeries(forecastDate);
+  return undefined;
 }
 
 function getBestBuienradarRainSampleSeries(forecastDate) {
@@ -7645,19 +7776,84 @@ function getBuienradarInstantRainSignal(sampleSeries, forecastDate) {
     return undefined;
   }
 
+  return buildInstantRainSignal(nearestSample.sample);
+}
+
+function getRadarImageInstantRainSignal(sampleSeries, forecastDate) {
+  const targetTime = forecastDate.getTime();
+  const samples = sampleSeries.samples
+    .filter((sample) => Number.isFinite(sample.time))
+    .sort((left, right) => left.time - right.time);
+  const upperIndex = samples.findIndex((sample) => sample.time >= targetTime);
+
+  if (upperIndex <= 0) {
+    return getBuienradarInstantRainSignal(sampleSeries, forecastDate);
+  }
+
+  const lowerSample = samples[upperIndex - 1];
+  const upperSample = samples[upperIndex];
+  const intervalMs = upperSample.time - lowerSample.time;
+  const frameWindowMs = sampleSeries.frameMinutes * 60 * 1000;
+  if (intervalMs <= 0 || intervalMs > frameWindowMs * 1.5) {
+    return getBuienradarInstantRainSignal(sampleSeries, forecastDate);
+  }
+
+  const progress = clampNumber((targetTime - lowerSample.time) / intervalMs, 0, 1);
+  return buildInstantRainSignal(interpolateRadarImageRainSamples(lowerSample, upperSample, progress, targetTime));
+}
+
+function interpolateRadarImageRainSamples(lowerSample, upperSample, progress, time) {
+  const interpolate = (field) => interpolateRadarSampleNumber(lowerSample[field], upperSample[field], progress);
+  const signal = interpolate("signal");
+  const intensitySignal = interpolate("intensitySignal");
+  const exactSignal = interpolate("exactSignal");
+  const nearbySignal = interpolate("nearbySignal");
+  const intensityRank = getPrecipitationIntensityRank(getBuienradarPrecipitationIntensity(intensitySignal));
+  const exactIntensityRank = getPrecipitationIntensityRank(getBuienradarPrecipitationIntensity(exactSignal));
+  const nearbyIntensityRank = getPrecipitationIntensityRank(getBuienradarPrecipitationIntensity(nearbySignal));
+
   return {
-    ...nearestSample.sample,
-    averageSignal: nearestSample.sample.signal,
-    peakSignal: nearestSample.sample.signal,
-    averageValue: nearestSample.sample.value,
-    peakValue: nearestSample.sample.value,
-    intensitySignal: nearestSample.sample.intensitySignal,
-    intensityRank: nearestSample.sample.intensityRank,
-    heavyFrameRatio: nearestSample.sample.intensityRank >= 3 ? 1 : 0,
-    moderateFrameRatio: nearestSample.sample.intensityRank >= 2 ? 1 : 0,
-    rainFrameRatio: nearestSample.sample.signal > buienradarDrySignalThreshold ? 1 : 0,
+    signal,
+    chanceSignal: interpolate("chanceSignal"),
+    chance: interpolate("chance"),
+    intensitySignal,
+    intensityRank,
+    exactSignal,
+    nearbySignal,
+    exactCoverage: interpolate("exactCoverage"),
+    nearbyCoverage: interpolate("nearbyCoverage"),
+    exactIntensityRank,
+    nearbyIntensityRank,
+    value: interpolate("value"),
+    amount: interpolate("amount"),
+    time,
+  };
+}
+
+function interpolateRadarSampleNumber(lowerValue, upperValue, progress) {
+  if (Number.isFinite(lowerValue) && Number.isFinite(upperValue)) {
+    return lowerValue + (upperValue - lowerValue) * progress;
+  }
+
+  return progress < 0.5 ? lowerValue : upperValue;
+}
+
+function buildInstantRainSignal(sample) {
+  return {
+    ...sample,
+    averageSignal: sample.signal,
+    peakSignal: sample.signal,
+    averageValue: sample.value,
+    peakValue: sample.value,
+    averageAmount: sample.amount,
+    peakAmount: sample.amount,
+    intensitySignal: sample.intensitySignal,
+    intensityRank: sample.intensityRank,
+    heavyFrameRatio: sample.intensityRank >= 3 ? 1 : 0,
+    moderateFrameRatio: sample.intensityRank >= 2 ? 1 : 0,
+    rainFrameRatio: sample.signal > buienradarDrySignalThreshold ? 1 : 0,
     sampleCount: 1,
-    wetSampleCount: nearestSample.sample.signal > buienradarDrySignalThreshold ? 1 : 0,
+    wetSampleCount: sample.signal > buienradarDrySignalThreshold ? 1 : 0,
   };
 }
 
@@ -7798,11 +7994,6 @@ function setKnmiImageLayer(layer, currentKey, frameIndex, opacity, zIndex, attri
   }
 
   const frameUrl = knmiFrameUrls[frameIndex];
-  if (layer && frameUrl && !knmiLoadedFrameUrls.has(frameUrl)) {
-    preloadKnmiFrameImage(frameUrl, { timeoutMs: knmiRadarImageLoadTimeoutMs });
-    return layer;
-  }
-
   if (layer) {
     map.removeLayer(layer);
   }
@@ -7870,6 +8061,7 @@ function clearBuienradarRadar() {
 }
 
 function clearKnmiLayers() {
+  knmiFrameRenderRequestId += 1;
   if (knmiLayer) {
     map.removeLayer(knmiLayer);
     knmiLayer = undefined;
@@ -8372,6 +8564,7 @@ function withHourlyPrecipitationChance(precipitation, hourlyPrecipitations) {
   return withPrecipitationChance({
     ...precipitation,
     intensity: hourlyPrecipitation.intensity || precipitation.intensity,
+    hasRadarEvidence: hourlyPrecipitation.hasRadarEvidence,
     isRadarAdjusted: hourlyPrecipitation.isRadarAdjusted,
     radarAdjustment: hourlyPrecipitation.radarAdjustment,
     stormSignal: hourlyPrecipitation.stormSignal || precipitation.stormSignal,
@@ -8501,6 +8694,7 @@ function getRainDebugPrecipitationSummary(precipitation) {
     value: precipitation.value,
     amount: formatDebugNumber(precipitation.amount),
     intensity: precipitation.intensity || "dry",
+    hasRadarEvidence: Boolean(precipitation.hasRadarEvidence),
     isRadarAdjusted: Boolean(precipitation.isRadarAdjusted),
   };
 }
@@ -8526,6 +8720,12 @@ function getRainDebugRadarSummary(adjustment) {
     peakAmount: formatDebugNumber(adjustment.peakAmount),
     averageSignal: formatDebugNumber(adjustment.averageSignal),
     peakSignal: formatDebugNumber(adjustment.peakSignal),
+    combinedSignal: formatDebugNumber(adjustment.combinedSignal),
+    exactSignal: formatDebugNumber(adjustment.exactSignal),
+    nearbySignal: formatDebugNumber(adjustment.nearbySignal),
+    exactCoverage: formatDebugNumber(adjustment.exactCoverage),
+    nearbyCoverage: formatDebugNumber(adjustment.nearbyCoverage),
+    localWet: adjustment.localWet,
     intensitySignal: formatDebugNumber(adjustment.intensitySignal),
     intensityRank: adjustment.intensityRank,
     heavyFrameRatio: formatDebugNumber(adjustment.heavyFrameRatio),
@@ -8584,16 +8784,13 @@ function withBuienradarPrecipitationAdjustment(precipitation, forecastTime, { in
   const isRadarAdjusted = modelDisplayChance !== displayChance
     || intensity !== precipitation.intensity;
 
-  if (!isRadarAdjusted) {
-    return precipitation;
-  }
-
   const adjustedPrecipitation = {
     ...precipitation,
     value,
     chance: adjustedChance,
     amount,
     intensity,
+    hasRadarEvidence: true,
     isRadarAdjusted,
     radarAdjustment: {
       source: adjustment.source,
@@ -8601,6 +8798,12 @@ function withBuienradarPrecipitationAdjustment(precipitation, forecastTime, { in
       signal: adjustment.signal,
       intensitySignal: adjustment.intensitySignal,
       intensityRank: adjustment.intensityRank,
+      exactSignal: adjustment.exactSignal,
+      nearbySignal: adjustment.nearbySignal,
+      exactCoverage: adjustment.exactCoverage,
+      nearbyCoverage: adjustment.nearbyCoverage,
+      exactIntensityRank: adjustment.exactIntensityRank,
+      nearbyIntensityRank: adjustment.nearbyIntensityRank,
       intensity: radarIntensity,
       weight: adjustment.weight,
       sampleMode: adjustment.sampleMode,
@@ -8644,7 +8847,7 @@ function getPrecipitationAdjustedWeatherCode(weatherCode, precipitation) {
     return 95;
   }
 
-  if (!precipitation?.isRadarAdjusted || !Number.isFinite(precipitation.chance)) {
+  if (!Number.isFinite(precipitation?.chance)) {
     return weatherCode;
   }
 
