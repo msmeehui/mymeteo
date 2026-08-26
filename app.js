@@ -18,7 +18,7 @@ const gifDecoderModuleUrl = "https://esm.sh/gifuct-js@2.1.2?bundle";
 const weatherIconBasePath = "assets/weather-icons-mymeteo/";
 const outfitSceneBackgroundBasePath = "assets/outfit-scenes/v2/backgrounds/";
 const outfitSceneCharacterBasePath = "assets/outfit-scenes/v2/characters/";
-const outfitSceneAssetVersion = "20260608-01";
+const outfitSceneAssetVersion = "20260826-01";
 // Replace these files and bump this version when updating the Easter egg video.
 const easterEggAssetVersion = "20260609-04";
 const easterEggDanceVideo = {
@@ -28,6 +28,7 @@ const easterEggDanceVideo = {
 const queryParams = new URLSearchParams(window.location.search);
 const outfitDebugQueryParam = "debugOutfit";
 const outfitSceneOverrideQueryParam = "outfitState";
+const outfitTimeOverrideQueryParam = "outfitTime";
 const rainDebugQueryParam = "debugRain";
 const radarTimingDebugQueryParam = "debugRadar";
 const rainSourceQueryParam = "rainSource";
@@ -413,15 +414,18 @@ const weatherIconLegendGroups = [
 const outfitScenes = {
   "hot-sunny": {
     background: "hot-sunny.webp",
+    nightBackground: "hot-sunny-night.webp",
     character: "hot-sunny.webp",
-    label: "Hot sunny outfit",
-    alt: "Suggested outfit for hot sunny weather: shorts, T-shirt, sunglasses, sandals, and water bottle.",
+    nightCharacter: "hot-sunny-night.webp",
+    label: "Hot-weather outfit",
+    alt: "Suggested outfit for hot weather: shorts, T-shirt, sandals, and water bottle.",
     characterMaxWidth: "70%",
     characterMaxWidthWide: "62%",
     legendCharacterBottom: "-2px",
   },
   "warm-fair": {
     background: "warm-fair.webp",
+    nightBackground: "warm-fair-night.webp",
     character: "warm-fair.webp",
     label: "Warm fair-weather outfit",
     alt: "Suggested outfit for warm dry weather: light shirt, light linen trousers, casual shoes, and a relaxed walking pose.",
@@ -430,6 +434,7 @@ const outfitScenes = {
   },
   "mild-cloudy": {
     background: "mild-cloudy.webp",
+    nightBackground: "mild-cloudy-night.webp",
     character: "mild-cloudy.webp",
     label: "Mild cloudy outfit",
     alt: "Suggested outfit for mild cloudy weather: long trousers, a light jumper, and a relaxed hands-in-pockets stroll.",
@@ -438,6 +443,7 @@ const outfitScenes = {
   },
   "cool-dry": {
     background: "cool-dry.webp",
+    nightBackground: "cool-dry-night.webp",
     character: "cool-dry.webp",
     label: "Cool dry outfit",
     alt: "Suggested outfit for cool dry weather: long trousers, sweater, light jacket, and a relaxed half-turn stroll.",
@@ -446,6 +452,7 @@ const outfitScenes = {
   },
   "cold-dry": {
     background: "cold-dry.webp",
+    nightBackground: "cold-dry-night.webp",
     character: "cold-dry.webp",
     label: "Cold dry outfit",
     alt: "Suggested outfit for cold dry weather: warm coat, scarf, long trousers, and closed shoes.",
@@ -455,6 +462,7 @@ const outfitScenes = {
   },
   "freezing-dry": {
     background: "freezing-dry.webp",
+    nightBackground: "freezing-dry-night.webp",
     character: "freezing-dry.webp",
     label: "Freezing dry outfit",
     alt: "Suggested outfit for freezing dry weather: thick coat, scarf, gloves, beanie, and warm shoes.",
@@ -464,6 +472,7 @@ const outfitScenes = {
   },
   fog: {
     background: "fog.webp",
+    nightBackground: "fog-night.webp",
     character: "fog.webp",
     label: "Fog outfit",
     alt: "Suggested outfit for fog: long trousers, closed shoes, and a light jacket.",
@@ -529,6 +538,7 @@ const outfitScenes = {
   },
   snow: {
     background: "snow.webp",
+    nightBackground: "snow-night.webp",
     character: "snow.webp",
     label: "Snow outfit",
     alt: "Suggested outfit for snow: winter coat, scarf, gloves, beanie, and boots.",
@@ -538,6 +548,7 @@ const outfitScenes = {
   },
   "heavy-snow": {
     background: "heavy-snow.webp",
+    nightBackground: "heavy-snow-night.webp",
     character: "heavy-snow.webp",
     label: "Heavy snow outfit",
     alt: "Suggested outfit for heavy snow: thick winter coat, scarf, gloves, beanie, and winter boots.",
@@ -555,6 +566,7 @@ const outfitScenes = {
   },
   windy: {
     background: "windy.webp",
+    nightBackground: "windy-night.webp",
     character: "windy.webp",
     label: "Windy outfit",
     alt: "Suggested outfit for windy weather: windbreaker, scarf, long trousers, closed shoes, and a braced leaning pose.",
@@ -575,7 +587,7 @@ const outfitLegendGroups = [
   {
     title: "Dry Temperature",
     items: [
-      { sceneId: "hot-sunny", label: "Hot sunny", description: "Shorts, T-shirt, sunglasses, sandals, and water bottle." },
+      { sceneId: "hot-sunny", label: "Hot weather", description: "Shorts, T-shirt, sandals, and water bottle." },
       { sceneId: "warm-fair", label: "Warm fair", description: "Light shirt, light linen trousers, and casual shoes." },
       { sceneId: "mild-cloudy", label: "Mild cloudy", description: "Long trousers and a light jumper." },
       { sceneId: "cool-dry", label: "Cool dry", description: "Long trousers, sweater, and light jacket." },
@@ -761,6 +773,7 @@ let activeMobileView = "rain";
 let activeRainSourceMode = isRainSourceCompareEnabled ? "compare" : "current";
 let isOutfitMode = false;
 let activeOutfitSceneId;
+let activeOutfitSceneVisualKey;
 let isOutfitLegendRendered = false;
 let preloadedOutfitSceneIds = new Set();
 let outfitScenePreloadQueue = [];
@@ -2204,6 +2217,7 @@ function applyLocation(location, analyticsEventName, { intentId = beginManualLoc
   currentLocationRefreshState = isCurrentLocation(nextLocation) ? currentLocationRefreshState : "idle";
   selectedLocation = nextLocation;
   activeOutfitSceneId = undefined;
+  activeOutfitSceneVisualKey = undefined;
   invalidateLocationSearch();
   locationSearchResults = [];
   saveLocation(selectedLocation);
@@ -3458,11 +3472,16 @@ function renderOutfitScene(snapshot, precipitation, weatherCode) {
     return;
   }
 
-  if (activeOutfitSceneId !== sceneId) {
-    activeOutfitSceneId = sceneId;
-    preloadedOutfitSceneIds.add(sceneId);
-    elements.outfitSceneBackground.src = buildOutfitSceneAssetUrl(outfitSceneBackgroundBasePath, scene.background);
-    elements.outfitSceneCharacter.src = buildOutfitSceneAssetUrl(outfitSceneCharacterBasePath, scene.character);
+  const timeOverride = getOutfitTimeOverride(overrideSceneId);
+  const timeOfDay = timeOverride || getOutfitSceneTimeOfDay(snapshot);
+  const assets = resolveOutfitSceneAssets(scene, timeOfDay);
+  const visualKey = [sceneId, assets.background, assets.character].join("|");
+  activeOutfitSceneId = sceneId;
+
+  if (activeOutfitSceneVisualKey !== visualKey) {
+    activeOutfitSceneVisualKey = visualKey;
+    elements.outfitSceneBackground.src = buildOutfitSceneAssetUrl(outfitSceneBackgroundBasePath, assets.background);
+    elements.outfitSceneCharacter.src = buildOutfitSceneAssetUrl(outfitSceneCharacterBasePath, assets.character);
     setOutfitSceneProperty("--outfit-background-position", scene.backgroundPosition);
     setOutfitSceneProperty("--outfit-background-position-mobile", scene.backgroundPositionMobile);
     setOutfitSceneProperty("--outfit-background-position-wide", scene.backgroundPositionWide);
@@ -3478,8 +3497,22 @@ function renderOutfitScene(snapshot, precipitation, weatherCode) {
   elements.outfitSceneCharacter.alt = scene.alt;
   elements.outfitSceneCharacter.title = scene.label;
   elements.outfitScene.dataset.outfitScene = sceneId;
+  elements.outfitScene.dataset.outfitTime = timeOfDay;
   elements.outfitScene.setAttribute("aria-label", scene.label);
-  updateOutfitDebugBadge(overrideSceneId, scene);
+  updateOutfitDebugBadge(overrideSceneId, scene, timeOverride);
+}
+
+function getOutfitSceneTimeOfDay(snapshot = {}) {
+  return snapshot.isDaytime === false || snapshot.isDaytime === 0 ? "night" : "day";
+}
+
+function resolveOutfitSceneAssets(scene, timeOfDay) {
+  const isNight = timeOfDay === "night";
+
+  return {
+    background: isNight && scene.nightBackground ? scene.nightBackground : scene.background,
+    character: isNight && scene.nightCharacter ? scene.nightCharacter : scene.character,
+  };
 }
 
 function setOutfitSceneProperty(property, value) {
@@ -3499,14 +3532,23 @@ function getOutfitSceneOverrideId() {
   return outfitScenes[sceneId] ? sceneId : undefined;
 }
 
-function updateOutfitDebugBadge(sceneId, scene) {
+function getOutfitTimeOverride(sceneId) {
+  if (!isOutfitDebugEnabled || !sceneId) {
+    return undefined;
+  }
+
+  const timeOfDay = queryParams.get(outfitTimeOverrideQueryParam);
+  return timeOfDay === "day" || timeOfDay === "night" ? timeOfDay : undefined;
+}
+
+function updateOutfitDebugBadge(sceneId, scene, timeOverride) {
   if (!elements.outfitDebugBadge) {
     return;
   }
 
   if (isOutfitDebugEnabled && sceneId && scene) {
     elements.outfitDebugBadge.hidden = false;
-    elements.outfitDebugBadge.textContent = `Forced outfit: ${sceneId}`;
+    elements.outfitDebugBadge.textContent = `Forced outfit: ${sceneId}${timeOverride ? ` · ${timeOverride}` : ""}`;
     elements.outfitDebugBadge.title = scene.label;
     return;
   }
@@ -3667,9 +3709,8 @@ function scheduleOutfitScenePreload() {
     return;
   }
 
-  outfitScenePreloadQueue = outfitSceneIds.filter(
-    (sceneId) => sceneId !== activeOutfitSceneId && !preloadedOutfitSceneIds.has(sceneId),
-  );
+  outfitScenePreloadQueue = [...new Set([activeOutfitSceneId, ...outfitSceneIds])]
+    .filter((sceneId) => sceneId && !preloadedOutfitSceneIds.has(sceneId));
   scheduleNextOutfitScenePreload(outfitScenePreloadInitialDelayMs);
 }
 
@@ -3724,13 +3765,30 @@ function preloadOutfitSceneImages(sceneId) {
   }
 
   preloadedOutfitSceneIds.add(sceneId);
-  const background = new Image();
-  const character = new Image();
-  background.decoding = "async";
-  character.decoding = "async";
-  outfitScenePreloadImages.set(sceneId, [background, character]);
-  background.src = buildOutfitSceneAssetUrl(outfitSceneBackgroundBasePath, scene.background);
-  character.src = buildOutfitSceneAssetUrl(outfitSceneCharacterBasePath, scene.character);
+  const assetSpecs = [
+    [outfitSceneBackgroundBasePath, scene.background],
+    [outfitSceneBackgroundBasePath, scene.nightBackground],
+    [outfitSceneCharacterBasePath, scene.character],
+    [outfitSceneCharacterBasePath, scene.nightCharacter],
+  ];
+  const seenUrls = new Set();
+  const images = assetSpecs.flatMap(([basePath, fileName]) => {
+    if (!fileName) {
+      return [];
+    }
+
+    const url = buildOutfitSceneAssetUrl(basePath, fileName);
+    if (seenUrls.has(url)) {
+      return [];
+    }
+
+    seenUrls.add(url);
+    const image = new Image();
+    image.decoding = "async";
+    image.src = url;
+    return [image];
+  });
+  outfitScenePreloadImages.set(sceneId, images);
 }
 
 function cancelOutfitScenePreload() {

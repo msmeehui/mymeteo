@@ -35,6 +35,30 @@ The v2 set currently includes the full current seventeen-state outfit set:
 | `snow` | `backgrounds/snow.webp` | `characters/snow.webp` |
 | `heavy-snow` | `backgrounds/heavy-snow.webp` | `characters/heavy-snow.webp` |
 
+## After-dark variants
+
+For selected times after sunset, ten visually light daytime scenes have matching
+after-dark background files named STATE-night.webp:
+
+- hot sunny
+- warm fair
+- mild cloudy
+- cool dry
+- cold dry
+- freezing dry
+- fog
+- windy
+- snow
+- heavy snow
+
+The hot-weather scene also has hot-sunny-night.webp in the character folder so
+Marc is not wearing sunglasses after sunset. Rain, drizzle, heavy rain, and
+thunderstorm scenes deliberately reuse their existing darker backgrounds.
+Unspecified night assets always fall back to the normal scene asset.
+
+The selected forecast time decides the variant. The Outfit Legend keeps the
+canonical daytime artwork so it remains a compact overview of clothing states.
+
 ## File Roles
 
 - `backgrounds/`: app-facing 1920x1200 WebP background layers
@@ -57,6 +81,10 @@ locally using border auto-key sampling, soft matte, and despill.
 
 The app-facing character layers were converted from transparent PNG to WebP with
 alpha using `cwebp -q 86 -alpha_q 95`.
+
+After-dark backgrounds were created as lighting/weather edits of the matching
+daytime source. They preserve the empty low-horizon composition, use a restrained
+indigo palette, and keep snow and fog luminous enough for character contrast.
 
 Warm rain variants reuse the existing drizzle/rain/heavy-rain background layers
 and add separate warm-weather character layers so tropical rain does not suggest

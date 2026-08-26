@@ -151,18 +151,33 @@ globalThis.__mymeteoOutfitTest = {
   getOverrideSceneId() {
     return getOutfitSceneOverrideId();
   },
+  getTimeOverride() {
+    return getOutfitTimeOverride(getOutfitSceneOverrideId());
+  },
   getSceneId({ previousSceneId, snapshot, precipitation, weatherCode }) {
     activeOutfitSceneId = previousSceneId;
     return getOutfitSceneId(snapshot, precipitation, weatherCode ?? snapshot?.weatherCode);
   },
-  renderScene({ previousSceneId, snapshot, precipitation, weatherCode }) {
-    activeOutfitSceneId = previousSceneId;
+  renderScene({ preserveActiveState = false, previousSceneId, snapshot, precipitation, weatherCode }) {
+    if (!preserveActiveState) {
+      activeOutfitSceneId = previousSceneId;
+      activeOutfitSceneVisualKey = undefined;
+    }
     renderOutfitScene(snapshot, precipitation, weatherCode ?? snapshot?.weatherCode);
     return {
+      backgroundSrc: elements.outfitSceneBackground.src,
       badgeHidden: elements.outfitDebugBadge.hidden,
       badgeText: elements.outfitDebugBadge.textContent,
+      characterSrc: elements.outfitSceneCharacter.src,
       sceneId: elements.outfitScene.dataset.outfitScene,
+      timeOfDay: elements.outfitScene.dataset.outfitTime,
     };
+  },
+  preloadScene(sceneId) {
+    preloadedOutfitSceneIds = new Set();
+    outfitScenePreloadImages.clear();
+    preloadOutfitSceneImages(sceneId);
+    return (outfitScenePreloadImages.get(sceneId) || []).map((image) => image.src);
   },
 };`,
     context,
@@ -174,9 +189,9 @@ globalThis.__mymeteoOutfitTest = {
 
 const rules = loadRules();
 
-function weatherSnapshot({ temperature = 16, windSpeed = 8, weatherCode = 0 } = {}) {
+function weatherSnapshot({ isDaytime = true, temperature = 16, windSpeed = 8, weatherCode = 0 } = {}) {
   return {
-    isDaytime: true,
+    isDaytime,
     temperature,
     weatherCode,
     windSpeed,
@@ -432,6 +447,54 @@ for (const testCase of cases) {
 const untestedSceneIds = rules.sceneIds.filter((sceneId) => !seenSceneIds.has(sceneId));
 assert.equal(untestedSceneIds.length, 0, `Missing coverage for outfit scenes: ${untestedSceneIds.join(", ")}`);
 
+const hotDayRender = rules.renderScene({
+  snapshot: weatherSnapshot({ isDaytime: true, temperature: 27 }),
+  precipitation: precipitation(),
+});
+assert.equal(hotDayRender.sceneId, "hot-sunny", "hot weather keeps its recommendation state during the day");
+assert.equal(hotDayRender.timeOfDay, "day", "daytime snapshot marks the outfit scene as day");
+assert.match(hotDayRender.backgroundSrc, /\/hot-sunny\.webp\?v=/, "daytime hot weather uses the daytime background");
+assert.match(hotDayRender.characterSrc, /\/hot-sunny\.webp\?v=/, "daytime hot weather uses the sunglasses character");
+
+const hotNightRender = rules.renderScene({
+  preserveActiveState: true,
+  snapshot: weatherSnapshot({ isDaytime: false, temperature: 27 }),
+  precipitation: precipitation(),
+});
+assert.equal(hotNightRender.sceneId, "hot-sunny", "crossing sunset does not change the outfit recommendation");
+assert.equal(hotNightRender.timeOfDay, "night", "nighttime snapshot marks the outfit scene as night");
+assert.match(hotNightRender.backgroundSrc, /\/hot-sunny-night\.webp\?v=/, "same-scene sunset switches to the night background");
+assert.match(hotNightRender.characterSrc, /\/hot-sunny-night\.webp\?v=/, "hot weather removes sunglasses after sunset");
+
+const warmBoundaryNightRender = rules.renderScene({
+  previousSceneId: "warm-fair",
+  snapshot: weatherSnapshot({ isDaytime: false, temperature: 26 }),
+  precipitation: precipitation(),
+});
+assert.equal(warmBoundaryNightRender.sceneId, "warm-fair", "sunset switching preserves temperature hysteresis at a scene boundary");
+assert.match(warmBoundaryNightRender.backgroundSrc, /\/warm-fair-night\.webp\?v=/, "hysteresis-preserved scene still selects its night background");
+
+const mildNightRender = rules.renderScene({
+  snapshot: weatherSnapshot({ isDaytime: false, temperature: 16 }),
+  precipitation: precipitation(),
+});
+assert.match(mildNightRender.backgroundSrc, /\/mild-cloudy-night\.webp\?v=/, "night variant uses the mild cloudy night background");
+assert.match(mildNightRender.characterSrc, /\/mild-cloudy\.webp\?v=/, "night variant reuses the existing character when no night character exists");
+
+const rainNightRender = rules.renderScene({
+  snapshot: weatherSnapshot({ isDaytime: false, temperature: 16, weatherCode: 63 }),
+  precipitation: precipitation({ chance: 80 }),
+});
+assert.match(rainNightRender.backgroundSrc, /\/rain\.webp\?v=/, "already-dark rain scene safely reuses its background at night");
+assert.match(rainNightRender.characterSrc, /\/rain\.webp\?v=/, "already-dark rain scene safely reuses its character at night");
+
+const hotPreloadUrls = rules.preloadScene("hot-sunny");
+assert.equal(hotPreloadUrls.length, 4, "hot weather preload includes both backgrounds and both characters");
+assert.ok(hotPreloadUrls.some((url) => url.includes("/hot-sunny-night.webp")), "hot weather preload includes night assets");
+
+const rainPreloadUrls = rules.preloadScene("rain");
+assert.equal(rainPreloadUrls.length, 2, "unchanged rain scene preloads only its background and character");
+
 const oldOverrideUrlRules = loadRules("?outfitState=mild-cloudy");
 assert.equal(
   oldOverrideUrlRules.getOverrideSceneId(),
@@ -449,5 +512,24 @@ const debugOverrideRender = debugOverrideRules.renderScene({
 assert.equal(debugOverrideRender.sceneId, "mild-cloudy", "debug outfit override forces the rendered scene");
 assert.equal(debugOverrideRender.badgeHidden, false, "debug outfit override reveals the forced-state badge");
 assert.equal(debugOverrideRender.badgeText, "Forced outfit: mild-cloudy", "debug outfit override labels the forced state");
+
+const unpairedTimeOverrideRules = loadRules("?outfitState=hot-sunny&outfitTime=night");
+assert.equal(unpairedTimeOverrideRules.getTimeOverride(), undefined, "outfitTime is ignored without the full debug outfit gate");
+const unpairedTimeOverrideRender = unpairedTimeOverrideRules.renderScene({
+  snapshot: weatherSnapshot({ isDaytime: true, temperature: 27 }),
+  precipitation: precipitation(),
+});
+assert.equal(unpairedTimeOverrideRender.timeOfDay, "day", "ignored outfitTime cannot force night presentation");
+
+const debugNightRules = loadRules("?debugOutfit=1&outfitState=mild-cloudy&outfitTime=night");
+assert.equal(debugNightRules.getTimeOverride(), "night", "paired debug controls can force the night presentation");
+const debugNightRender = debugNightRules.renderScene({
+  snapshot: weatherSnapshot({ isDaytime: true, temperature: 27 }),
+  precipitation: precipitation(),
+});
+assert.equal(debugNightRender.sceneId, "mild-cloudy", "night debug override retains the forced outfit state");
+assert.equal(debugNightRender.timeOfDay, "night", "night debug override forces after-dark presentation");
+assert.match(debugNightRender.backgroundSrc, /\/mild-cloudy-night\.webp\?v=/, "night debug override loads the night background");
+assert.equal(debugNightRender.badgeText, "Forced outfit: mild-cloudy · night", "debug badge identifies the forced time presentation");
 
 console.log(`Outfit state QA passed: ${cases.length} rule checks, ${rules.sceneIds.length} outfit scenes covered.`);
