@@ -235,6 +235,7 @@ globalThis.__mymeteoPrecipitationTest = {
     fetchedAt = 0,
     intensityRank = exactSignal > 0.02 ? 1 : 0,
     intensitySignal = exactSignal > 0.02 ? 0.2 : 0,
+    exactIntensitySignal = exactSignal > 0.02 ? intensitySignal : 0,
     locationKey = getBuienradarSampleLocationKey(selectedLocation),
     nearbySignal = exactSignal,
     referenceTimeMs,
@@ -257,6 +258,7 @@ globalThis.__mymeteoPrecipitationTest = {
         chance,
         exactCoverage: exactSignal,
         exactIntensityRank: intensityRank,
+        exactIntensitySignal,
         exactSignal,
         intensityRank,
         intensitySignal,
@@ -359,6 +361,7 @@ function radarAdjustment(overrides = {}) {
     intensitySignal: 0.2,
     intensityRank: 1,
     exactSignal: 0.2,
+    exactIntensitySignal: 0.2,
     nearbySignal: 0.2,
     exactCoverage: 0.2,
     nearbyCoverage: 0.2,
@@ -648,6 +651,7 @@ const nearbyOnly = rules.buildRadarImageTimelinePrecipitation(
     exactCoverage: 0,
     nearbyCoverage: 0.5,
     exactIntensityRank: 0,
+    exactIntensitySignal: 0,
     nearbyIntensityRank: 2,
     intensityRank: 2,
     intensitySignal: 0.5,
@@ -664,6 +668,39 @@ assert.equal(
   rules.getPrecipitationAdjustedWeatherCode(61, nearbyOnly),
   3,
   "nearby-only rain clears a contradictory local rain icon",
+);
+
+// Broad light rain can raise confidence without being misread as moderate intensity.
+const broadLightRain = rules.buildRadarImageTimelinePrecipitation(
+  basePrecipitation(rules),
+  radarAdjustment({
+    chance: 77.67,
+    exactSignal: 0.594,
+    exactIntensityRank: 1,
+    exactIntensitySignal: 0.2,
+    intensityRank: 1,
+    intensitySignal: 0.2,
+    nearbySignal: 0.7,
+    signal: 0.594,
+  }),
+);
+assert.equal(broadLightRain.value, "80%", "broad light rain keeps its coverage-derived display chance");
+assert.equal(broadLightRain.amount, 0.1, "broad light rain keeps a light equivalent amount");
+assert.equal(broadLightRain.intensity, "light", "broad light rain is not promoted to moderate intensity");
+assert.equal(
+  broadLightRain.radarAdjustment?.signal,
+  0.594,
+  "the exact wet signal remains available separately from intensity",
+);
+assert.equal(
+  broadLightRain.radarAdjustment?.localIntensitySignal,
+  0.2,
+  "the local intensity signal remains independent of exact coverage",
+);
+assert.equal(
+  rules.getPrecipitationTimelineLevel(broadLightRain),
+  0.2,
+  "the graph plots broad light rain at light intensity",
 );
 
 // Open-Meteo precipitation values describe the preceding hour, so selection is forward-looking.
@@ -751,6 +788,7 @@ const dryFrameSample = {
   chanceSignal: 0,
   exactCoverage: 0,
   exactIntensityRank: 0,
+  exactIntensitySignal: 0,
   exactSignal: 0,
   intensityRank: 0,
   intensitySignal: 0,
@@ -765,6 +803,7 @@ const heavyFrameSample = {
   chanceSignal: 0.9,
   exactCoverage: 0.8,
   exactIntensityRank: 3,
+  exactIntensitySignal: 0.85,
   exactSignal: 0.8,
   intensityRank: 3,
   intensitySignal: 0.85,
@@ -786,6 +825,11 @@ const quarterAdjustment = rules.getInstantAdjustment(
 );
 assert.equal(quarterAdjustment.signal, 0.225, "25% map progress uses 25% of the upper image signal");
 assert.equal(quarterAdjustment.exactSignal, 0.2, "exact-local signal follows the same 25% crossfade");
+assert.equal(
+  quarterAdjustment.exactIntensitySignal,
+  0.2125,
+  "exact-local intensity follows the same 25% crossfade independently",
+);
 assert.equal(quarterAdjustment.chance, 25, "image chance follows the same 25% crossfade");
 const midpointAdjustment = rules.getInstantAdjustment(
   imageSeries,
@@ -793,7 +837,73 @@ const midpointAdjustment = rules.getInstantAdjustment(
 );
 assert.equal(midpointAdjustment.signal, 0.45, "the midpoint blends both radar frames equally");
 assert.equal(midpointAdjustment.intensitySignal, 0.425, "intensity follows the map's equal frame weights");
+assert.equal(
+  midpointAdjustment.exactIntensitySignal,
+  0.425,
+  "exact-local intensity follows the map's equal frame weights",
+);
 assert.equal(midpointAdjustment.intensityRank, 2, "the blended midpoint derives a moderate intensity rank");
+
+// Nearby heavy rain in a dry endpoint must not inflate an exact-light crossfade.
+const localLightFrameSample = {
+  chance: 62,
+  chanceSignal: 0.3,
+  exactCoverage: 0.4,
+  exactIntensityRank: 1,
+  exactIntensitySignal: 0.2,
+  exactSignal: 0.3,
+  intensityRank: 1,
+  intensitySignal: 0.2,
+  nearbyCoverage: 0.4,
+  nearbyIntensityRank: 1,
+  nearbySignal: 0.3,
+  signal: 0.3,
+  time: interpolationStartMs,
+};
+const nearbyHeavyFrameSample = {
+  chance: 45,
+  chanceSignal: 0.495,
+  exactCoverage: 0,
+  exactIntensityRank: 0,
+  exactIntensitySignal: 0,
+  exactSignal: 0,
+  intensityRank: 3,
+  intensitySignal: 0.85,
+  nearbyCoverage: 0.8,
+  nearbyIntensityRank: 3,
+  nearbySignal: 0.9,
+  signal: 0.495,
+  time: interpolationStartMs + 5 * 60 * 1000,
+};
+const exactLightAdjustment = rules.getInstantAdjustment(
+  {
+    frameMinutes: 5,
+    samples: [localLightFrameSample, nearbyHeavyFrameSample],
+    source: "radar-image",
+    startDate: new Date(interpolationStartMs),
+  },
+  interpolationStartMs + 150 * 1000,
+);
+assert.equal(exactLightAdjustment.exactSignal, 0.15, "exact wet confidence crossfades continuously");
+assert.equal(
+  exactLightAdjustment.exactIntensitySignal,
+  0.1,
+  "exact light intensity fades independently of nearby heavy rain",
+);
+assert.ok(
+  Math.abs(exactLightAdjustment.intensitySignal - 0.525) < 1e-12,
+  "the wider sample still records nearby heavy context",
+);
+const exactLightPrecipitation = rules.buildRadarImageTimelinePrecipitation(
+  basePrecipitation(rules),
+  exactLightAdjustment,
+);
+assert.equal(exactLightPrecipitation.intensity, "light", "nearby heavy rain cannot inflate local intensity");
+assert.equal(
+  rules.getPrecipitationTimelineLevel(exactLightPrecipitation),
+  0.14,
+  "the local graph remains in the light range during the crossfade",
+);
 const pointAdjustment = rules.getInstantAdjustment(
   {
     ...imageSeries,

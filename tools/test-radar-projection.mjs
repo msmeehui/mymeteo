@@ -158,6 +158,7 @@ globalThis.__mymeteoRadarProjectionTest = {
     return buildKnmiPointRainUrl(location, new Date(timeMs), new Date(referenceTimeMs));
   },
   getKnmiFrameRainSample,
+  getKnmiPixelRainSample,
   getWebMercatorRadarPixelForLocation,
   getWmsEpsg3857Bbox,
 };`,
@@ -189,9 +190,9 @@ function createSyntheticKnmiContext(rainPixel) {
           }
 
           const offset = (y * width + x) * 4;
-          data[offset] = 20;
-          data[offset + 1] = 90;
-          data[offset + 2] = 240;
+          data[offset] = 85;
+          data[offset + 1] = 85;
+          data[offset + 2] = 85;
           data[offset + 3] = 255;
         }
       }
@@ -206,6 +207,28 @@ const width = rules.width;
 const height = rules.height;
 const frameTime = Date.UTC(2026, 7, 29, 6, 35);
 const referenceTime = Date.UTC(2026, 7, 29, 6, 30);
+
+const knmiPaletteFixtures = [
+  { name: "transparent background", rgba: [0, 0, 0, 0], intensityRank: 0, chanceSignal: 0 },
+  { name: "opaque black", rgba: [0, 0, 0, 255], intensityRank: 0, chanceSignal: 0 },
+  { name: "dry white", rgba: [255, 255, 255, 255], intensityRank: 0, chanceSignal: 0 },
+  { name: "light grey rain", rgba: [170, 170, 170, 255], intensityRank: 1, chanceSignal: 0.3 },
+  { name: "dark grey rain", rgba: [85, 85, 85, 255], intensityRank: 1, chanceSignal: 0.3 },
+  { name: "pink heavy rain", rgba: [255, 128, 128, 255], intensityRank: 3, chanceSignal: 0.92 },
+  { name: "red heavy rain", rgba: [255, 0, 0, 255], intensityRank: 3, chanceSignal: 0.92 },
+  { name: "near-black extreme rain", rgba: [1, 0, 0, 255], intensityRank: 3, chanceSignal: 0.92 },
+];
+
+for (const fixture of knmiPaletteFixtures) {
+  assert.deepEqual(
+    { ...rules.getKnmiPixelRainSample(...fixture.rgba) },
+    {
+      intensityRank: fixture.intensityRank,
+      chanceSignal: fixture.chanceSignal,
+    },
+    `${fixture.name} must retain its KNMI precipitation meaning`,
+  );
+}
 
 const imageUrl = new URL(rules.buildKnmiRadarImageUrl(frameTime, referenceTime));
 assert.equal(imageUrl.searchParams.get("REQUEST"), "GetMap");
@@ -295,6 +318,11 @@ for (const fixture of cityFixtures) {
     fixture.location,
   );
   assert.ok(alignedSample.exactSignal > 0, `${fixture.name} rain over the marker must sample as wet`);
+  assert.equal(
+    alignedSample.exactIntensityRank,
+    1,
+    `${fixture.name} real KNMI grey rain must retain light intensity`,
+  );
 
   const displacedSample = rules.getKnmiFrameRainSample(
     createSyntheticKnmiContext(fixture.north15KmPixel),

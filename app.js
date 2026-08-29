@@ -2672,12 +2672,21 @@ function buildRadarImageTimelinePrecipitation(precipitation, adjustment) {
     isRadarImageAdjustmentSource(adjustment.source)
     && Number.isFinite(adjustment.exactSignal)
   );
-  const radarIntensitySignal = shouldUseExactLocalSignal
+  const localWetSignal = shouldUseExactLocalSignal
     ? adjustment.exactSignal
+    : adjustment.signal;
+  const exactIntensitySignal = Number.isFinite(adjustment.exactIntensitySignal)
+    ? adjustment.exactIntensitySignal
+    : Number.isFinite(adjustment.exactIntensityRank)
+      ? getBuienradarIntensitySignalForRank(adjustment.exactIntensityRank)
+      : undefined;
+  const radarIntensitySignal = shouldUseExactLocalSignal && Number.isFinite(exactIntensitySignal)
+    ? exactIntensitySignal
     : (Number.isFinite(adjustment.intensitySignal) ? adjustment.intensitySignal : adjustment.signal);
   const isDry = (
-    getPrecipitationIntensityRank(getBuienradarPrecipitationIntensity(radarIntensitySignal)) <= 0
-    || radarIntensitySignal <= buienradarDrySignalThreshold
+    !Number.isFinite(localWetSignal)
+    || localWetSignal <= buienradarDrySignalThreshold
+    || getPrecipitationIntensityRank(getBuienradarPrecipitationIntensity(radarIntensitySignal)) <= 0
   );
   const localChance = shouldUseExactLocalSignal
     ? getBuienradarSignalChance({
@@ -2724,11 +2733,13 @@ function buildRadarImageTimelinePrecipitation(precipitation, adjustment) {
       crs: adjustment.crs,
       chance,
       sourceChance: adjustment.chance,
-      signal: radarIntensitySignal,
+      signal: localWetSignal,
       combinedSignal: adjustment.signal,
       intensitySignal: adjustment.intensitySignal,
+      localIntensitySignal: radarIntensitySignal,
       intensityRank: adjustment.intensityRank,
       exactSignal: adjustment.exactSignal,
+      exactIntensitySignal,
       nearbySignal: adjustment.nearbySignal,
       exactCoverage: adjustment.exactCoverage,
       nearbyCoverage: adjustment.nearbyCoverage,
@@ -2766,6 +2777,14 @@ function getPrecipitationTimelineLevel(precipitation) {
   }
 
   if (
+    isRadarImageAdjustmentSource(precipitation.radarAdjustment?.source)
+    && Number.isFinite(precipitation.radarAdjustment.exactSignal)
+    && precipitation.radarAdjustment.exactSignal <= buienradarDrySignalThreshold
+  ) {
+    return 0;
+  }
+
+  if (
     precipitation.radarAdjustment
     && getPrecipitationIntensityRank(precipitation.radarAdjustment.intensity) <= 0
     && Number.isFinite(precipitation.radarAdjustment.signal)
@@ -2774,11 +2793,15 @@ function getPrecipitationTimelineLevel(precipitation) {
     return 0;
   }
 
-  const radarSignal = isRadarImageAdjustmentSource(precipitation.radarAdjustment?.source)
-    ? (precipitation.radarAdjustment?.exactSignal ?? precipitation.radarAdjustment?.signal)
+  const radarIntensitySignal = isRadarImageAdjustmentSource(precipitation.radarAdjustment?.source)
+    ? (
+      precipitation.radarAdjustment?.localIntensitySignal
+      ?? precipitation.radarAdjustment?.exactIntensitySignal
+      ?? precipitation.radarAdjustment?.intensitySignal
+    )
     : precipitation.radarAdjustment?.intensitySignal;
-  if (Number.isFinite(radarSignal) && radarSignal > 0) {
-    return clampNumber(radarSignal, 0.14, 1);
+  if (Number.isFinite(radarIntensitySignal) && radarIntensitySignal > 0) {
+    return clampNumber(radarIntensitySignal, 0.14, 1);
   }
 
   if (isPrecipitationDisplayDry(precipitation)) {
@@ -7139,6 +7162,7 @@ function getRadarFrameRainSample(context, width, height, location, pixelRainSamp
   const nearbyIntensityRank = getBuienradarSampleIntensityRank(stats.nearbyClassCounts, stats.nearbyPixels);
   const intensityRank = exactIntensityRank || nearbyIntensityRank;
   const intensitySignal = getBuienradarIntensitySignalForRank(intensityRank);
+  const exactIntensitySignal = getBuienradarIntensitySignalForRank(exactIntensityRank);
 
   return {
     signal: Math.max(exactSignal, nearbySignal * nearbyWeight),
@@ -7146,6 +7170,7 @@ function getRadarFrameRainSample(context, width, height, location, pixelRainSamp
     intensitySignal,
     intensityRank,
     exactIntensityRank,
+    exactIntensitySignal,
     nearbyIntensityRank,
     exactSignal,
     nearbySignal,
@@ -7193,7 +7218,7 @@ function getBuienradarPixelRainSample(red, green, blue, alpha) {
 }
 
 function getKnmiPixelRainSample(red, green, blue, alpha) {
-  if (alpha < knmiSampleAlphaThreshold || Math.max(red, green, blue) < 30) {
+  if (alpha < knmiSampleAlphaThreshold) {
     return {
       intensityRank: 0,
       chanceSignal: 0,
@@ -7206,7 +7231,9 @@ function getKnmiPixelRainSample(red, green, blue, alpha) {
   const saturation = maxChannel - minChannel;
   const brightness = (red + green + blue) / 3;
   const isNeutral = saturation < 18 || (brightness > 235 && saturation < 35);
-  let intensityRank = 0;
+  const isExtremeRain = red > 0 && red < 30 && green < 5 && blue < 5;
+  const isKnmiGreyRain = saturation < 18 && brightness >= 45 && brightness < 215;
+  let intensityRank = isExtremeRain ? 3 : (isKnmiGreyRain ? 1 : 0);
 
   if (!isNeutral) {
     const isPurple = red > 110 && blue > 125 && green < 145 && saturation > 45;
@@ -7912,6 +7939,7 @@ function getBuienradarAdjustmentFromSampleSeries(
     intensitySignal: sample.intensitySignal,
     intensityRank: sample.intensityRank,
     exactSignal: sample.exactSignal,
+    exactIntensitySignal: sample.exactIntensitySignal,
     nearbySignal: sample.nearbySignal,
     exactCoverage: sample.exactCoverage,
     nearbyCoverage: sample.nearbyCoverage,
@@ -8124,12 +8152,31 @@ function getRadarImageInstantRainSignal(sampleSeries, forecastDate) {
 
 function interpolateRadarImageRainSamples(lowerSample, upperSample, progress, time) {
   const interpolate = (field) => interpolateRadarSampleNumber(lowerSample[field], upperSample[field], progress);
+  const getExactIntensitySignal = (sample) => {
+    if (Number.isFinite(sample.exactIntensitySignal)) {
+      return sample.exactIntensitySignal;
+    }
+
+    if (Number.isFinite(sample.exactIntensityRank)) {
+      return getBuienradarIntensitySignalForRank(sample.exactIntensityRank);
+    }
+
+    return sample.intensitySignal;
+  };
+  const interpolateExactIntensity = () => interpolateRadarSampleNumber(
+    getExactIntensitySignal(lowerSample),
+    getExactIntensitySignal(upperSample),
+    progress,
+  );
   const signal = interpolate("signal");
   const intensitySignal = interpolate("intensitySignal");
   const exactSignal = interpolate("exactSignal");
+  const exactIntensitySignal = interpolateExactIntensity();
   const nearbySignal = interpolate("nearbySignal");
   const intensityRank = getPrecipitationIntensityRank(getBuienradarPrecipitationIntensity(intensitySignal));
-  const exactIntensityRank = getPrecipitationIntensityRank(getBuienradarPrecipitationIntensity(exactSignal));
+  const exactIntensityRank = getPrecipitationIntensityRank(
+    getBuienradarPrecipitationIntensity(exactIntensitySignal),
+  );
   const nearbyIntensityRank = getPrecipitationIntensityRank(getBuienradarPrecipitationIntensity(nearbySignal));
 
   return {
@@ -8139,6 +8186,7 @@ function interpolateRadarImageRainSamples(lowerSample, upperSample, progress, ti
     intensitySignal,
     intensityRank,
     exactSignal,
+    exactIntensitySignal,
     nearbySignal,
     exactCoverage: interpolate("exactCoverage"),
     nearbyCoverage: interpolate("nearbyCoverage"),
@@ -9078,6 +9126,7 @@ function getRainDebugRadarSummary(adjustment) {
     peakSignal: formatDebugNumber(adjustment.peakSignal),
     combinedSignal: formatDebugNumber(adjustment.combinedSignal),
     exactSignal: formatDebugNumber(adjustment.exactSignal),
+    exactIntensitySignal: formatDebugNumber(adjustment.exactIntensitySignal),
     nearbySignal: formatDebugNumber(adjustment.nearbySignal),
     exactCoverage: formatDebugNumber(adjustment.exactCoverage),
     nearbyCoverage: formatDebugNumber(adjustment.nearbyCoverage),
@@ -9167,6 +9216,7 @@ function withBuienradarPrecipitationAdjustment(
       intensitySignal: adjustment.intensitySignal,
       intensityRank: adjustment.intensityRank,
       exactSignal: adjustment.exactSignal,
+      exactIntensitySignal: adjustment.exactIntensitySignal,
       nearbySignal: adjustment.nearbySignal,
       exactCoverage: adjustment.exactCoverage,
       nearbyCoverage: adjustment.nearbyCoverage,
