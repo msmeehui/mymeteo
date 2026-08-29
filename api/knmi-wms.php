@@ -8,6 +8,10 @@ const MYMETEO_KNMI_STYLE = 'radar/nearest';
 const MYMETEO_DEFAULT_CACHE_TTL_SECONDS = 240;
 const MYMETEO_CAPABILITIES_CACHE_TTL_SECONDS = 300;
 const MYMETEO_STALE_CACHE_TTL_SECONDS = 1800;
+const MYMETEO_WEB_MERCATOR_MIN_EASTING = -55659.7454;
+const MYMETEO_WEB_MERCATOR_MAX_EASTING = 1335833.8896;
+const MYMETEO_WEB_MERCATOR_MIN_NORTHING = 6106854.8348;
+const MYMETEO_WEB_MERCATOR_MAX_NORTHING = 7658602.2931;
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
     mymeteo_json_error(405, 'Method not allowed');
@@ -151,7 +155,6 @@ function mymeteo_build_wms_request(array $rawParams): array
 
     $version = mymeteo_string_param($params, 'version', true);
     $crs = strtoupper(mymeteo_string_param($params, 'crs', true));
-    $bbox = mymeteo_bbox_param($params);
     $width = mymeteo_int_param($params, 'width', 1, 1200, true);
     $height = mymeteo_int_param($params, 'height', 1, 1200, true);
     $styles = mymeteo_string_param($params, 'styles', true);
@@ -162,15 +165,18 @@ function mymeteo_build_wms_request(array $rawParams): array
         throw new InvalidArgumentException('Unsupported KNMI WMS version');
     }
 
-    if ($crs !== 'EPSG:4326') {
-        throw new InvalidArgumentException('Unsupported KNMI CRS');
-    }
-
     if ($styles !== MYMETEO_KNMI_STYLE) {
         throw new InvalidArgumentException('Unsupported KNMI style');
     }
 
     if ($request === 'GetMap') {
+        if ($crs !== 'EPSG:4326' && $crs !== 'EPSG:3857') {
+            throw new InvalidArgumentException('Unsupported KNMI CRS');
+        }
+
+        $bbox = $crs === 'EPSG:3857'
+            ? mymeteo_web_mercator_bbox_param($params)
+            : mymeteo_bbox_param($params);
         $layers = mymeteo_string_param($params, 'layers', true);
         $format = strtolower(mymeteo_string_param($params, 'format', true));
         $transparent = strtolower(mymeteo_string_param($params, 'transparent', true));
@@ -193,7 +199,7 @@ function mymeteo_build_wms_request(array $rawParams): array
             'VERSION' => '1.3.0',
             'request' => 'GetMap',
             'LAYERS' => MYMETEO_KNMI_LAYER,
-            'CRS' => 'EPSG:4326',
+            'CRS' => $crs,
             'BBOX' => $bbox,
             'WIDTH' => (string) $width,
             'HEIGHT' => (string) $height,
@@ -207,6 +213,11 @@ function mymeteo_build_wms_request(array $rawParams): array
         return mymeteo_pack_wms_request($request, $query, 'image/png,*/*');
     }
 
+    if ($crs !== 'EPSG:4326') {
+        throw new InvalidArgumentException('Unsupported KNMI CRS');
+    }
+
+    $bbox = mymeteo_bbox_param($params);
     $layers = mymeteo_string_param($params, 'layers', true);
     $queryLayers = mymeteo_string_param($params, 'query_layers', true);
     $infoFormat = strtolower(mymeteo_string_param($params, 'info_format', true));
@@ -360,6 +371,54 @@ function mymeteo_bbox_param(array $params): string
 
     if ($west < -0.5 || $west > 12.0 || $east < -0.5 || $east > 12.0 || $west >= $east) {
         throw new InvalidArgumentException('KNMI BBOX longitude out of range');
+    }
+
+    return implode(',', array_map('mymeteo_format_bbox_number', $numbers));
+}
+
+function mymeteo_web_mercator_bbox_param(array $params): string
+{
+    $bbox = mymeteo_string_param($params, 'bbox', true);
+    $parts = explode(',', $bbox);
+
+    if (count($parts) !== 4) {
+        throw new InvalidArgumentException('Invalid KNMI Web Mercator BBOX parameter');
+    }
+
+    $numbers = [];
+    foreach ($parts as $part) {
+        if (!preg_match('/^-?\d+(?:\.\d+)?$/D', $part)) {
+            throw new InvalidArgumentException('Invalid KNMI Web Mercator BBOX number');
+        }
+
+        $number = (float) $part;
+        if (!is_finite($number)) {
+            throw new InvalidArgumentException('Invalid KNMI Web Mercator BBOX number');
+        }
+
+        $numbers[] = $number;
+    }
+
+    [$west, $south, $east, $north] = $numbers;
+
+    if (
+        $west < MYMETEO_WEB_MERCATOR_MIN_EASTING
+        || $west > MYMETEO_WEB_MERCATOR_MAX_EASTING
+        || $east < MYMETEO_WEB_MERCATOR_MIN_EASTING
+        || $east > MYMETEO_WEB_MERCATOR_MAX_EASTING
+        || $west >= $east
+    ) {
+        throw new InvalidArgumentException('KNMI Web Mercator BBOX easting out of range');
+    }
+
+    if (
+        $south < MYMETEO_WEB_MERCATOR_MIN_NORTHING
+        || $south > MYMETEO_WEB_MERCATOR_MAX_NORTHING
+        || $north < MYMETEO_WEB_MERCATOR_MIN_NORTHING
+        || $north > MYMETEO_WEB_MERCATOR_MAX_NORTHING
+        || $south >= $north
+    ) {
+        throw new InvalidArgumentException('KNMI Web Mercator BBOX northing out of range');
     }
 
     return implode(',', array_map('mymeteo_format_bbox_number', $numbers));

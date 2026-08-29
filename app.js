@@ -54,6 +54,12 @@ const knmiPointRainTimeoutMs = 5000;
 const knmiPointRainConcurrentRequests = 2;
 const knmiPointRainInitialSampleCount = 2;
 const knmiPointRainRenderDelayMs = 150;
+const knmiPointImageConflictPastMinutes = 10;
+const knmiPointImageConflictFutureMinutes = 5;
+const knmiPointImageConflictMaxSampleSkewMinutes = 5;
+const knmiRadarDelayedThresholdMinutes = 15;
+const radarNowPastToleranceMinutes = 10;
+const radarNowFutureToleranceMinutes = 5;
 const stormMinutelySampleCount = 12;
 const currentLocationSource = "current";
 const currentLocationRefreshCooldownMs = 60 * 1000;
@@ -66,6 +72,8 @@ const buienradarBounds = [
   [48.92249926375824, 0],
   [55.77657301866769, 11.25],
 ];
+const webMercatorEarthRadiusMeters = 6378137;
+const webMercatorMaxLatitude = 85.0511287798066;
 const buienradarRadarModes = {
   "3h": {
     imageType: "RadarMapRainWebmercatorNL",
@@ -88,6 +96,8 @@ const buienradarDefaultTimeline = {
 const knmiRadarConfig = {
   dataset: "radar_forecast_2.0",
   layer: "precipitation_nowcast",
+  mapCrs: "EPSG:3857",
+  pointCrs: "EPSG:4326",
   style: "radar/nearest",
   modeId: "knmi-2h",
   frameMinutes: 5,
@@ -2383,10 +2393,14 @@ async function loadAll(options = {}) {
 async function loadWeather(context) {
   const requestLocation = context.location;
   const requestLocationKey = context.locationKey;
-  const pointRainPromise = prepareBuienradarPointRainForLocation(requestLocation).catch((error) => {
+  const pointRainPromise = prepareBuienradarPointRainForLocation(requestLocation, {
+    forceRefresh: context.forceRadarRefresh,
+  }).catch((error) => {
     console.warn("Could not load Buienradar point rain data.", error);
   });
-  const knmiPointRainPromise = prepareKnmiPointRainForLocation(requestLocation).catch((error) => {
+  const knmiPointRainPromise = prepareKnmiPointRainForLocation(requestLocation, {
+    forceRefresh: context.forceRadarRefresh,
+  }).catch((error) => {
     console.warn("Could not load KNMI point rain data.", error);
   });
   const params = new URLSearchParams({
@@ -2700,6 +2714,14 @@ function buildRadarImageTimelinePrecipitation(precipitation, adjustment) {
     isRadarAdjusted,
     radarAdjustment: {
       source: adjustment.source,
+      locationKey: adjustment.locationKey,
+      referenceTime: adjustment.referenceTime,
+      fetchedAt: adjustment.fetchedAt,
+      metadataFetchedAt: adjustment.metadataFetchedAt,
+      proxyAgeSeconds: adjustment.proxyAgeSeconds,
+      proxyCacheStatus: adjustment.proxyCacheStatus,
+      proxyDiagnosticScope: adjustment.proxyDiagnosticScope,
+      crs: adjustment.crs,
       chance,
       sourceChance: adjustment.chance,
       signal: radarIntensitySignal,
@@ -3062,6 +3084,11 @@ function getRainSourcePrecipitationSummary(precipitation, fallbackMeta = "") {
     amount,
     precipitation.radarAdjustment?.source,
     formatRainSourceLocality(precipitation.radarAdjustment),
+    formatRainSourceTimestamp(precipitation.radarAdjustment?.time, "valid"),
+    formatRainSourceTimestamp(precipitation.radarAdjustment?.referenceTime, "run"),
+    precipitation.radarAdjustment?.conflictResolution === "point-wet-over-image-dry"
+      ? "point/image conflict resolved"
+      : "",
   ].filter(Boolean).join(" · ");
 
   return [value, meta || fallbackMeta];
@@ -3082,9 +3109,37 @@ function getRainSourceAdjustmentSummary(adjustment, fallbackValue, fallbackMeta 
     amount,
     Number.isFinite(adjustment.sampleCount) ? `${adjustment.wetSampleCount || 0}/${adjustment.sampleCount} wet` : "",
     formatRainSourceLocality(adjustment),
+    formatRainSourceTimestamp(adjustment.time, "valid"),
+    formatRainSourceTimestamp(adjustment.referenceTime, "run"),
+    formatRainSourceAge(adjustment.fetchedAt, "fetched"),
+    adjustment.proxyCacheStatus
+      ? `proxy ${adjustment.proxyDiagnosticScope || "source"} ${adjustment.proxyCacheStatus}`
+      : "",
+    Number.isFinite(adjustment.proxyAgeSeconds)
+      ? `proxy ${adjustment.proxyDiagnosticScope || "source"} age ${Math.round(adjustment.proxyAgeSeconds)}s`
+      : "",
+    adjustment.crs,
+    adjustment.conflictResolution === "point-wet-over-image-dry" ? "point/image conflict resolved" : "",
   ].filter(Boolean).join(" · ");
 
   return [value, meta];
+}
+
+function formatRainSourceTimestamp(value, label) {
+  if (!Number.isFinite(value)) {
+    return "";
+  }
+
+  return `${label} ${formatClock(new Date(value), selectedLocation.timezone)}`;
+}
+
+function formatRainSourceAge(value, label, now = Date.now()) {
+  if (!Number.isFinite(value) || !Number.isFinite(now)) {
+    return "";
+  }
+
+  const ageMinutes = Math.max(0, Math.round((now - value) / (60 * 1000)));
+  return `${label} ${ageMinutes}m ago`;
 }
 
 function formatRainSourceLocality(adjustment) {
@@ -3255,16 +3310,80 @@ function buildSelectedTimePrecipitation(hourly, date) {
     return undefined;
   }
   const radarAdjustment = getPrecipitationTimelineRadarAdjustment(date);
-  const adjustedPrecipitation = radarAdjustment
-    ? buildRadarImageTimelinePrecipitation(precipitation, radarAdjustment)
-    : withBuienradarPrecipitationAdjustment(precipitation, forecastTime, {
+  const pointImageConflict = getKnmiPointWetImageDryConflict(date, radarAdjustment);
+  let adjustedPrecipitation = pointImageConflict
+    ? withBuienradarPrecipitationAdjustment(precipitation, forecastTime, {
+      includeIntensity: true,
+      radarSampleMode: "instant",
+      adjustment: pointImageConflict.pointAdjustment,
+    })
+    : radarAdjustment
+      ? buildRadarImageTimelinePrecipitation(precipitation, radarAdjustment)
+      : withBuienradarPrecipitationAdjustment(precipitation, forecastTime, {
       includeIntensity: true,
       radarSampleMode: "instant",
     });
+  if (pointImageConflict && adjustedPrecipitation.radarAdjustment) {
+    adjustedPrecipitation = {
+      ...adjustedPrecipitation,
+      radarAdjustment: {
+        ...adjustedPrecipitation.radarAdjustment,
+        conflictResolution: "point-wet-over-image-dry",
+        conflictingImageExactSignal: pointImageConflict.imageAdjustment.exactSignal,
+        conflictingImageTime: pointImageConflict.imageAdjustment.time,
+        conflictingImageReferenceTime: pointImageConflict.imageAdjustment.referenceTime,
+      },
+    };
+  }
 
   return {
     ...adjustedPrecipitation,
     scopeLabel: "Selected time",
+  };
+}
+
+function getKnmiPointWetImageDryConflict(date, imageAdjustment, now = new Date()) {
+  if (
+    !(date instanceof Date)
+    || Number.isNaN(date.getTime())
+    || !(now instanceof Date)
+    || Number.isNaN(now.getTime())
+    || imageAdjustment?.source !== "knmi-image"
+    || !Number.isFinite(imageAdjustment.exactSignal)
+    || imageAdjustment.exactSignal > buienradarDrySignalThreshold
+  ) {
+    return undefined;
+  }
+
+  const offsetMinutes = (date.getTime() - now.getTime()) / (60 * 1000);
+  if (
+    offsetMinutes < -knmiPointImageConflictPastMinutes
+    || offsetMinutes > knmiPointImageConflictFutureMinutes
+  ) {
+    return undefined;
+  }
+
+  const pointAdjustment = getKnmiAdjustmentForDate(date, "instant");
+  const selectedLocationKey = getBuienradarSampleLocationKey(selectedLocation);
+  if (
+    pointAdjustment?.source !== "knmi-point"
+    || !Number.isFinite(pointAdjustment.signal)
+    || pointAdjustment.signal <= buienradarDrySignalThreshold
+    || pointAdjustment.locationKey !== selectedLocationKey
+    || imageAdjustment.locationKey !== selectedLocationKey
+    || !Number.isFinite(pointAdjustment.time)
+    || !Number.isFinite(imageAdjustment.time)
+    || Math.abs(pointAdjustment.time - imageAdjustment.time)
+      > knmiPointImageConflictMaxSampleSkewMinutes * 60 * 1000
+    || !Number.isFinite(pointAdjustment.referenceTime)
+    || pointAdjustment.referenceTime !== imageAdjustment.referenceTime
+  ) {
+    return undefined;
+  }
+
+  return {
+    pointAdjustment,
+    imageAdjustment,
   };
 }
 
@@ -5467,7 +5586,10 @@ async function fetchKnmiRadar({ forceRefresh = false, timing } = {}) {
   }
 
   setRadarTimingPath(timing, "knmi", "network");
-  knmiRadarRequest = downloadKnmiRadar(timing)
+  knmiRadarRequest = downloadKnmiRadar({
+    forceMetadataRefresh: forceRefresh,
+    timing,
+  })
     .then((radar) => {
       knmiRadarCache = radar;
       return radar;
@@ -5479,8 +5601,11 @@ async function fetchKnmiRadar({ forceRefresh = false, timing } = {}) {
   return knmiRadarRequest;
 }
 
-async function downloadKnmiRadar(timing) {
-  const metadata = await fetchKnmiRadarMetadata({ timing });
+async function downloadKnmiRadar({ forceMetadataRefresh = false, timing } = {}) {
+  const metadata = await fetchKnmiRadarMetadata({
+    forceRefresh: forceMetadataRefresh,
+    timing,
+  });
   const frameDates = getKnmiRadarFrameDates(metadata.referenceDate, metadata.endDate);
   const frameUrls = frameDates.map((date) => buildKnmiRadarImageUrl(date, metadata.referenceDate));
 
@@ -5500,6 +5625,11 @@ async function downloadKnmiRadar(timing) {
     frameUrls,
     frameDates,
     referenceDate: metadata.referenceDate,
+    metadataFetchedAt: metadata.fetchedAt,
+    proxyAgeSeconds: metadata.proxyAgeSeconds,
+    proxyCacheStatus: metadata.proxyCacheStatus,
+    proxyDiagnosticScope: metadata.proxyDiagnosticScope,
+    crs: knmiRadarConfig.mapCrs,
     startDate: frameDates[0],
     timeline: {
       ...knmiRadarConfig.timeline,
@@ -5578,11 +5708,29 @@ async function downloadKnmiRadarMetadataResponse() {
   const referenceDate = parseIsoDate(referenceDimension?.getAttribute("default")) || roundDateToPreviousFiveMinutes(new Date());
   const endDate = parseIsoDate(timeDimension?.getAttribute("default"))
     || new Date(referenceDate.getTime() + knmiRadarConfig.maxLookaheadHours * 60 * 60 * 1000);
+  const proxyCacheDiagnostics = getKnmiProxyCacheDiagnostics(response, "metadata");
 
   return {
     referenceDate,
     endDate,
     fetchedAt: Date.now(),
+    ...proxyCacheDiagnostics,
+  };
+}
+
+function getKnmiProxyCacheDiagnostics(response, scope) {
+  const proxyAgeHeader = response?.headers?.get?.("Age");
+  const proxyAgeSeconds = proxyAgeHeader === null || proxyAgeHeader === undefined || proxyAgeHeader === ""
+    ? undefined
+    : Number(proxyAgeHeader);
+  const proxyCacheStatus = response?.headers?.get?.("X-MyMeteo-KNMI-Cache") || undefined;
+
+  return {
+    proxyAgeSeconds: Number.isFinite(proxyAgeSeconds) && proxyAgeSeconds >= 0
+      ? proxyAgeSeconds
+      : undefined,
+    proxyCacheStatus,
+    proxyDiagnosticScope: proxyAgeSeconds !== undefined || proxyCacheStatus ? scope : undefined,
   };
 }
 
@@ -5670,7 +5818,7 @@ function captureRadarDisplaySelection(shouldPreserveSelection) {
 }
 
 function restoreRadarDisplaySelection(selection, renderPosition) {
-  let sliderValue = 0;
+  let sliderValue = getDefaultRadarSliderValue();
   if (selection && !selection.wasAtStart && selection.selectedDate) {
     const mappedValue = getRadarSliderValueForDate(selection.selectedDate);
     if (Number.isFinite(mappedValue)) {
@@ -5684,8 +5832,43 @@ function restoreRadarDisplaySelection(selection, renderPosition) {
 
   sliderValue = Math.round(sliderValue);
   elements.radarSlider.value = String(sliderValue);
-  radarSliderWasAtStart = selection ? selection.wasAtStart && isRadarSliderAtStart(sliderValue) : true;
+  radarSliderWasAtStart = isRadarSliderAtStart(sliderValue);
   renderPosition(sliderValue);
+}
+
+function alignRadarSliderStartWithCurrentTime(now = new Date()) {
+  const range = getRadarTimeRange();
+  if (
+    !range
+    || !(now instanceof Date)
+    || Number.isNaN(now.getTime())
+    || now < range.start
+    || now > range.end
+  ) {
+    return;
+  }
+
+  const nowValue = getRadarSliderValueForDate(now);
+  if (!Number.isFinite(nowValue)) {
+    return;
+  }
+
+  const maxValue = Number(elements.radarSlider.max) || 0;
+  elements.radarSlider.min = String(clampNumber(Math.ceil(nowValue), 0, maxValue));
+}
+
+function getDefaultRadarSliderValue(now = new Date()) {
+  const range = getRadarTimeRange();
+  if (
+    range
+    && now instanceof Date
+    && !Number.isNaN(now.getTime())
+    && range.end < now
+  ) {
+    return Number(elements.radarSlider.max) || 0;
+  }
+
+  return getRadarSliderMin();
 }
 
 function displayKnmiRadar(radar, { preserveSelection = false } = {}) {
@@ -5706,11 +5889,12 @@ function displayKnmiRadar(radar, { preserveSelection = false } = {}) {
   elements.radarSlider.max = String(Math.max((radar.frameUrls.length - 1) * 100, 0));
   elements.radarSlider.step = "1";
   elements.radarTime.classList.remove("error");
+  alignRadarSliderStartWithCurrentTime();
   restoreRadarDisplaySelection(selection, setKnmiFramePosition);
   updateSliderTimestamps();
   renderPrecipitationTimeline();
   prepareKnmiRainSamples(radar);
-  clearRadarMapStatus();
+  updateKnmiRadarFreshnessStatus();
   refreshMapSize();
 }
 
@@ -5751,10 +5935,11 @@ function displayHybridRadar(knmiRadar, buienradarRadar, {
   elements.radarSlider.max = String(maxValue);
   elements.radarSlider.step = "1";
   elements.radarTime.classList.remove("error");
+  alignRadarSliderStartWithCurrentTime();
   restoreRadarDisplaySelection(selection, setHybridRadarPosition);
   updateSliderTimestamps();
   renderPrecipitationTimeline();
-  clearRadarMapStatus();
+  updateKnmiRadarFreshnessStatus();
   refreshMapSize();
   if (prepareKnmiSamples) {
     prepareKnmiRainSamples(knmiRadar);
@@ -5794,6 +5979,7 @@ function displayBuienradarRadar(radar, { preserveSelection = false } = {}) {
   elements.radarSlider.disabled = radar.frameUrls.length < 2;
   elements.radarSlider.max = String(Math.max((buienradarTimeline.frameCount - 1) * 100, 0));
   elements.radarSlider.step = "1";
+  alignRadarSliderStartWithCurrentTime();
   restoreRadarDisplaySelection(selection, setBuienradarFramePosition);
   updateSliderTimestamps();
   renderPrecipitationTimeline();
@@ -5898,6 +6084,28 @@ function clearRadarMapStatus() {
   elements.radarMapStatus.classList.remove("is-error");
 }
 
+function updateKnmiRadarFreshnessStatus(now = new Date()) {
+  if (isKnmiRadarReferenceDelayed(knmiReferenceDate, now)) {
+    setRadarMapStatus("Radar update delayed", { isError: true });
+    return;
+  }
+
+  clearRadarMapStatus();
+}
+
+function isKnmiRadarReferenceDelayed(referenceDate, now = new Date()) {
+  if (
+    !(referenceDate instanceof Date)
+    || Number.isNaN(referenceDate.getTime())
+    || !(now instanceof Date)
+    || Number.isNaN(now.getTime())
+  ) {
+    return false;
+  }
+
+  return now.getTime() - referenceDate.getTime() > knmiRadarDelayedThresholdMinutes * 60 * 1000;
+}
+
 function disableRadar(message) {
   clearLibreWxrRadar();
   clearBuienradarRadar();
@@ -5951,7 +6159,7 @@ function setLibreWxrRadarPosition(value) {
   const displayTime = interpolateUnixTime(lowerFrame.time, upperFrame.time, progress);
   const displayDate = new Date(displayTime * 1000);
   const label = formatClock(displayDate);
-  const isCurrentPosition = isRadarSliderAtStart(value);
+  const isCurrentPosition = isRadarSliderAtStart(value) && isRadarDateCurrent(displayDate);
   elements.radarTime.textContent = label;
   setRainForecastBadgeText(label, displayDate, selectedLocation.timezone, { isCurrentPosition });
   elements.radarSlider.setAttribute("aria-valuetext", label);
@@ -6140,13 +6348,28 @@ function updateRadarTimeDisplay(frameDate, sliderValue, timezone = selectedLocat
   }
 
   const label = formatClock(frameDate, timezone);
-  const isCurrentPosition = isRadarSliderAtStart(sliderValue);
+  const isCurrentPosition = isRadarSliderAtStart(sliderValue) && isRadarDateCurrent(frameDate);
   elements.radarTime.textContent = label;
   setRainForecastBadgeText(label, frameDate, timezone, { isCurrentPosition });
   elements.radarSlider.value = String(Math.round(sliderValue));
   elements.radarSlider.setAttribute("aria-valuetext", label);
   elements.radarTime.classList.remove("error");
   setActiveRadarDate(frameDate);
+}
+
+function isRadarDateCurrent(date, now = new Date()) {
+  if (
+    !(date instanceof Date)
+    || Number.isNaN(date.getTime())
+    || !(now instanceof Date)
+    || Number.isNaN(now.getTime())
+  ) {
+    return false;
+  }
+
+  const offsetMinutes = (date.getTime() - now.getTime()) / (60 * 1000);
+  return offsetMinutes >= -radarNowPastToleranceMinutes
+    && offsetMinutes <= radarNowFutureToleranceMinutes;
 }
 
 function getBuienradarFramePositionForSliderValue(value) {
@@ -6709,7 +6932,13 @@ function prepareKnmiRainSamples(radar) {
         frameUrls: radar.frameUrls,
         locationKey,
         startDate: radar.startDate,
+        referenceDate: radar.referenceDate,
         fetchedAt: radar.fetchedAt,
+        metadataFetchedAt: radar.metadataFetchedAt,
+        proxyAgeSeconds: radar.proxyAgeSeconds,
+        proxyCacheStatus: radar.proxyCacheStatus,
+        proxyDiagnosticScope: radar.proxyDiagnosticScope,
+        crs: radar.crs || knmiRadarConfig.mapCrs,
         frameMinutes: knmiRadarConfig.frameMinutes,
         maxLookaheadHours: knmiRadarConfig.maxLookaheadHours,
         samples,
@@ -6819,7 +7048,7 @@ function getKnmiFrameRainSample(context, width, height, location) {
 }
 
 function getRadarFrameRainSample(context, width, height, location, pixelRainSampler) {
-  const point = getBuienradarPixelForLocation(location, width, height);
+  const point = getWebMercatorRadarPixelForLocation(location, width, height);
   if (!point) {
     return {
       signal: 0,
@@ -7041,18 +7270,21 @@ function getBuienradarIntensitySignalForRank(rank) {
   return signals[rank] || 0;
 }
 
-function getBuienradarPixelForLocation(location, width, height) {
-  if (!window.L || !Number.isFinite(location?.lat) || !Number.isFinite(location?.lon)) {
+function getWebMercatorRadarPixelForLocation(location, width, height, bounds = buienradarBounds) {
+  if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) {
     return undefined;
   }
 
-  const bounds = L.latLngBounds(buienradarBounds);
-  const crs = map?.options?.crs || L.CRS.EPSG3857;
-  const northWest = crs.latLngToPoint(bounds.getNorthWest(), 0);
-  const southEast = crs.latLngToPoint(bounds.getSouthEast(), 0);
-  const point = crs.latLngToPoint(L.latLng(location.lat, location.lon), 0);
-  const xRatio = (point.x - northWest.x) / (southEast.x - northWest.x);
-  const yRatio = (point.y - northWest.y) / (southEast.y - northWest.y);
+  const [[south, west], [north, east]] = bounds;
+  const southWest = projectLocationToWebMercator({ lat: south, lon: west });
+  const northEast = projectLocationToWebMercator({ lat: north, lon: east });
+  const point = projectLocationToWebMercator(location);
+  if (!southWest || !northEast || !point) {
+    return undefined;
+  }
+
+  const xRatio = (point.x - southWest.x) / (northEast.x - southWest.x);
+  const yRatio = (northEast.y - point.y) / (northEast.y - southWest.y);
 
   if (xRatio < 0 || xRatio > 1 || yRatio < 0 || yRatio > 1) {
     return undefined;
@@ -7061,6 +7293,20 @@ function getBuienradarPixelForLocation(location, width, height) {
   return {
     x: clampNumber(xRatio * width, 0, width - 1),
     y: clampNumber(yRatio * height, 0, height - 1),
+  };
+}
+
+function projectLocationToWebMercator(location) {
+  if (!Number.isFinite(location?.lat) || !Number.isFinite(location?.lon)) {
+    return undefined;
+  }
+
+  const latitude = clampNumber(location.lat, -webMercatorMaxLatitude, webMercatorMaxLatitude);
+  const longitudeRadians = location.lon * Math.PI / 180;
+  const latitudeRadians = latitude * Math.PI / 180;
+  return {
+    x: webMercatorEarthRadiusMeters * longitudeRadians,
+    y: webMercatorEarthRadiusMeters * Math.log(Math.tan(Math.PI / 4 + latitudeRadians / 2)),
   };
 }
 
@@ -7270,7 +7516,7 @@ async function prepareKnmiPointRainForLocation(location, { forceRefresh = false 
     return existingRequest;
   }
 
-  const request = downloadKnmiPointRain(location, locationKey)
+  const request = downloadKnmiPointRain(location, locationKey, { forceMetadataRefresh: forceRefresh })
     .catch((error) => {
       knmiPointRainErrors.set(locationKey, {
         message: getKnmiPointRainErrorMessage(error),
@@ -7287,8 +7533,8 @@ async function prepareKnmiPointRainForLocation(location, { forceRefresh = false 
   return request;
 }
 
-async function downloadKnmiPointRain(location, locationKey) {
-  const metadata = await fetchKnmiRadarMetadata();
+async function downloadKnmiPointRain(location, locationKey, { forceMetadataRefresh = false } = {}) {
+  const metadata = await fetchKnmiRadarMetadata({ forceRefresh: forceMetadataRefresh });
   const frameDates = getKnmiRadarFrameDates(metadata.referenceDate, metadata.endDate);
   const prioritizedDates = getKnmiPointRainPriorityDates(frameDates);
   const initialDates = prioritizedDates.slice(0, knmiPointRainInitialSampleCount);
@@ -7307,6 +7553,11 @@ async function downloadKnmiPointRain(location, locationKey) {
     startDate: frameDates[0],
     referenceDate: metadata.referenceDate,
     fetchedAt: Date.now(),
+    metadataFetchedAt: metadata.fetchedAt,
+    proxyAgeSeconds: metadata.proxyAgeSeconds,
+    proxyCacheStatus: metadata.proxyCacheStatus,
+    proxyDiagnosticScope: metadata.proxyDiagnosticScope,
+    crs: knmiRadarConfig.pointCrs,
     frameMinutes: knmiRadarConfig.frameMinutes,
     samples: [],
   };
@@ -7427,6 +7678,7 @@ async function fetchKnmiPointRainSample(location, date, referenceDate) {
 
     return {
       ...getKnmiPointRainSampleFromAmount(amount),
+      ...getKnmiProxyCacheDiagnostics(response, "point"),
       time: date.getTime(),
     };
   } catch (error) {
@@ -7455,7 +7707,7 @@ function buildKnmiPointRainUrl(location, date, referenceDate) {
     request: "GetFeatureInfo",
     layers: knmiRadarConfig.layer,
     query_layers: knmiRadarConfig.layer,
-    crs: "EPSG:4326",
+    crs: knmiRadarConfig.pointCrs,
     bbox,
     width: "101",
     height: "101",
@@ -7645,6 +7897,16 @@ function getBuienradarAdjustmentFromSampleSeries(
   const blendWeight = Number.isFinite(weight) ? weight : getBuienradarBlendWeight(horizonHours);
   return {
     source: adjustmentSource,
+    locationKey: sampleSeries.locationKey,
+    referenceTime: sampleSeries.referenceDate instanceof Date
+      ? sampleSeries.referenceDate.getTime()
+      : undefined,
+    fetchedAt: sampleSeries.fetchedAt,
+    metadataFetchedAt: sampleSeries.metadataFetchedAt,
+    proxyAgeSeconds: sample.proxyAgeSeconds ?? sampleSeries.proxyAgeSeconds,
+    proxyCacheStatus: sample.proxyCacheStatus || sampleSeries.proxyCacheStatus,
+    proxyDiagnosticScope: sample.proxyDiagnosticScope || sampleSeries.proxyDiagnosticScope,
+    crs: sampleSeries.crs,
     chance: sample.chance,
     signal: sample.signal,
     intensitySignal: sample.intensitySignal,
@@ -8174,8 +8436,8 @@ function buildKnmiRadarImageUrl(date, referenceDate = knmiReferenceDate) {
     version: "1.3.0",
     request: "GetMap",
     layers: knmiRadarConfig.layer,
-    crs: "EPSG:4326",
-    bbox: getWmsEpsg4326Bbox(buienradarBounds),
+    crs: "EPSG:3857",
+    bbox: getWmsEpsg3857Bbox(buienradarBounds),
     width: String(knmiRadarConfig.width),
     height: String(knmiRadarConfig.height),
     format: "image/png",
@@ -8204,9 +8466,11 @@ function formatKnmiIsoTime(date) {
     : undefined;
 }
 
-function getWmsEpsg4326Bbox(bounds) {
+function getWmsEpsg3857Bbox(bounds) {
   const [[south, west], [north, east]] = bounds;
-  return [south, west, north, east].join(",");
+  const southWest = projectLocationToWebMercator({ lat: south, lon: west });
+  const northEast = projectLocationToWebMercator({ lat: north, lon: east });
+  return [southWest.x, southWest.y, northEast.x, northEast.y].join(",");
 }
 
 function isFreshKnmiRadar(radar) {
@@ -8732,6 +8996,11 @@ function recordRainDebugPrecipitation(forecastTime, modelPrecipitation, finalPre
   const entry = {
     forecastTime: formatDebugForecastTime(forecastTime),
     forecastLabel: formatTime(forecastTime),
+    location: {
+      lat: formatDebugNumber(selectedLocation.lat),
+      lon: formatDebugNumber(selectedLocation.lon),
+      key: getBuienradarSampleLocationKey(selectedLocation),
+    },
     model: getRainDebugPrecipitationSummary(modelPrecipitation),
     radar: getRainDebugRadarSummary(finalPrecipitation.radarAdjustment),
     final: getRainDebugPrecipitationSummary(finalPrecipitation),
@@ -8764,6 +9033,35 @@ function getRainDebugRadarSummary(adjustment) {
 
   return {
     source: adjustment.source,
+    locationKey: adjustment.locationKey,
+    validTime: Number.isFinite(adjustment.time) ? new Date(adjustment.time).toISOString() : undefined,
+    referenceTime: Number.isFinite(adjustment.referenceTime)
+      ? new Date(adjustment.referenceTime).toISOString()
+      : undefined,
+    fetchedAt: Number.isFinite(adjustment.fetchedAt)
+      ? new Date(adjustment.fetchedAt).toISOString()
+      : undefined,
+    clientFetchAgeMinutes: Number.isFinite(adjustment.fetchedAt)
+      ? formatDebugNumber((Date.now() - adjustment.fetchedAt) / (60 * 1000))
+      : undefined,
+    referenceAgeMinutes: Number.isFinite(adjustment.referenceTime)
+      ? formatDebugNumber((Date.now() - adjustment.referenceTime) / (60 * 1000))
+      : undefined,
+    metadataFetchedAt: Number.isFinite(adjustment.metadataFetchedAt)
+      ? new Date(adjustment.metadataFetchedAt).toISOString()
+      : undefined,
+    proxyDiagnosticScope: adjustment.proxyDiagnosticScope,
+    proxyCacheStatus: adjustment.proxyCacheStatus,
+    proxyAgeSeconds: formatDebugNumber(adjustment.proxyAgeSeconds),
+    crs: adjustment.crs,
+    conflictResolution: adjustment.conflictResolution,
+    conflictingImageExactSignal: formatDebugNumber(adjustment.conflictingImageExactSignal),
+    conflictingImageTime: Number.isFinite(adjustment.conflictingImageTime)
+      ? new Date(adjustment.conflictingImageTime).toISOString()
+      : undefined,
+    conflictingImageReferenceTime: Number.isFinite(adjustment.conflictingImageReferenceTime)
+      ? new Date(adjustment.conflictingImageReferenceTime).toISOString()
+      : undefined,
     chance: formatDebugNumber(adjustment.chance),
     signal: formatDebugNumber(adjustment.signal),
     intensity: adjustment.intensity || "dry",
@@ -8791,7 +9089,6 @@ function getRainDebugRadarSummary(adjustment) {
     rainFrameRatio: formatDebugNumber(adjustment.rainFrameRatio),
     sampleCount: adjustment.sampleCount,
     wetSampleCount: adjustment.wetSampleCount,
-    sampleTime: Number.isFinite(adjustment.time) ? new Date(adjustment.time).toISOString() : undefined,
   };
 }
 
@@ -8804,8 +9101,13 @@ function formatDebugNumber(value) {
   return Number.isFinite(value) ? Math.round(value * 100) / 100 : undefined;
 }
 
-function withBuienradarPrecipitationAdjustment(precipitation, forecastTime, { includeIntensity = false, radarSampleMode = "hourly" } = {}) {
-  const adjustment = getActiveRainSourceAdjustmentForForecastTime(forecastTime, { radarSampleMode });
+function withBuienradarPrecipitationAdjustment(
+  precipitation,
+  forecastTime,
+  { includeIntensity = false, radarSampleMode = "hourly", adjustment: providedAdjustment } = {},
+) {
+  const adjustment = providedAdjustment
+    || getActiveRainSourceAdjustmentForForecastTime(forecastTime, { radarSampleMode });
 
   if (!adjustment) {
     return precipitation;
@@ -8852,6 +9154,14 @@ function withBuienradarPrecipitationAdjustment(precipitation, forecastTime, { in
     isRadarAdjusted,
     radarAdjustment: {
       source: adjustment.source,
+      locationKey: adjustment.locationKey,
+      referenceTime: adjustment.referenceTime,
+      fetchedAt: adjustment.fetchedAt,
+      metadataFetchedAt: adjustment.metadataFetchedAt,
+    proxyAgeSeconds: adjustment.proxyAgeSeconds,
+    proxyCacheStatus: adjustment.proxyCacheStatus,
+    proxyDiagnosticScope: adjustment.proxyDiagnosticScope,
+    crs: adjustment.crs,
       chance: adjustment.chance,
       signal: adjustment.signal,
       intensitySignal: adjustment.intensitySignal,

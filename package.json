@@ -1,9 +1,11 @@
 {
   "scripts": {
-    "test": "npm run test:outfits && npm run test:loading && npm run test:precipitation",
+    "test": "npm run test:outfits && npm run test:loading && npm run test:precipitation && npm run test:radar-projection && npm run test:radar-time",
     "test:loading": "node tools/test-loading-races.mjs",
     "test:outfits": "node tools/test-outfit-states.mjs",
-    "test:precipitation": "node tools/test-precipitation-consistency.mjs"
+    "test:precipitation": "node tools/test-precipitation-consistency.mjs",
+    "test:radar-projection": "node tools/test-radar-projection.mjs",
+    "test:radar-time": "node tools/test-radar-time-state.mjs"
   },
   "devDependencies": {
     "playwright": "^1.60.0"

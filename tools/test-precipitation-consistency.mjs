@@ -195,6 +195,9 @@ globalThis.__mymeteoPrecipitationTest = {
     getPrecipitationTimelineRadarAdjustment = __originalTimelineRadarAdjustment;
     preloadKnmiFrameImage = __originalPreloadKnmiFrameImage;
     setKnmiImageLayer = __originalSetKnmiImageLayer;
+    knmiPointRainCache.clear();
+    knmiRainSamples = undefined;
+    displayedRadarSource = undefined;
     weatherData = undefined;
   },
   configureKnmiFrameRendering({ frameIds, loadedFrameIds, startTimeMs }) {
@@ -225,13 +228,22 @@ globalThis.__mymeteoPrecipitationTest = {
   },
   renderKnmiFramePosition,
   setDisplayedRadarSamples({
+    chance = 60,
     displayedFrameId,
     displayedModeId = "3h",
+    exactSignal = 0.2,
     fetchedAt = 0,
+    intensityRank = exactSignal > 0.02 ? 1 : 0,
+    intensitySignal = exactSignal > 0.02 ? 0.2 : 0,
+    locationKey = getBuienradarSampleLocationKey(selectedLocation),
+    nearbySignal = exactSignal,
+    referenceTimeMs,
     sampleFrameId,
     sampleModeId = displayedModeId,
+    signal = exactSignal,
     source,
     timeMs,
+    sampleTimeMs = timeMs,
   }) {
     const displayedFrames = [displayedFrameId];
     const sampleFrames = sampleFrameId === displayedFrameId ? displayedFrames : [sampleFrameId];
@@ -239,23 +251,24 @@ globalThis.__mymeteoPrecipitationTest = {
       fetchedAt,
       frameMinutes: 5,
       frameUrls: sampleFrames,
-      locationKey: getBuienradarSampleLocationKey(selectedLocation),
+      locationKey,
       modeId: source === "knmi" ? "knmi-image" : sampleModeId,
       samples: [{
-        chance: 60,
-        exactCoverage: 0.2,
-        exactIntensityRank: 1,
-        exactSignal: 0.2,
-        intensityRank: 1,
-        intensitySignal: 0.2,
-        nearbyCoverage: 0.2,
-        nearbyIntensityRank: 1,
-        nearbySignal: 0.2,
-        signal: 0.2,
-        time: timeMs,
+        chance,
+        exactCoverage: exactSignal,
+        exactIntensityRank: intensityRank,
+        exactSignal,
+        intensityRank,
+        intensitySignal,
+        nearbyCoverage: nearbySignal,
+        nearbyIntensityRank: intensityRank,
+        nearbySignal,
+        signal,
+        time: sampleTimeMs,
       }],
       source: source === "knmi" ? "knmi-image" : "radar-image",
-      startDate: new Date(timeMs),
+      startDate: new Date(sampleTimeMs),
+      referenceDate: Number.isFinite(referenceTimeMs) ? new Date(referenceTimeMs) : undefined,
     };
 
     displayedRadarSource = source;
@@ -270,6 +283,34 @@ globalThis.__mymeteoPrecipitationTest = {
       buienradarStartDate = new Date(timeMs);
       buienradarRainSamples = new Map([[sampleModeId, sampleSeries]]);
     }
+  },
+  setKnmiPointSamples({
+    chance = 70,
+    fetchedAt = Date.now(),
+    signal,
+    intensityRank = signal > 0.02 ? 1 : 0,
+    intensitySignal = signal > 0.02 ? 0.2 : 0,
+    locationKey = getBuienradarSampleLocationKey(selectedLocation),
+    referenceTimeMs,
+    timeMs,
+  }) {
+    knmiPointRainCache.set(locationKey, {
+      modeId: "knmi-point",
+      source: "knmi-point",
+      pointWindow: true,
+      locationKey,
+      startDate: new Date(timeMs),
+      referenceDate: Number.isFinite(referenceTimeMs) ? new Date(referenceTimeMs) : undefined,
+      fetchedAt,
+      frameMinutes: 5,
+      samples: [{
+        chance,
+        intensityRank,
+        intensitySignal,
+        signal,
+        time: timeMs,
+      }],
+    });
   },
   setKnmiFrameRenderingDependencies({ preload, setLayer }) {
     preloadKnmiFrameImage = preload;
@@ -345,6 +386,46 @@ function hourlyFixture({ chances, codes, rainAmounts, startTimeMs }) {
     wind_direction_10m: Array(length).fill(180),
     wind_speed_10m: Array(length).fill(10),
   };
+}
+
+function getKnmiPointImageConflictResult(rules, {
+  selectedTimeMs,
+  imageReferenceTimeMs,
+  imageTimeMs = selectedTimeMs,
+  pointReferenceTimeMs = imageReferenceTimeMs,
+  pointSignal = 0.3,
+  pointTimeMs = selectedTimeMs,
+}) {
+  rules.reset();
+  rules.setWeatherData({
+    hourly: hourlyFixture({
+      chances: [0],
+      codes: [3],
+      rainAmounts: [0],
+      startTimeMs: selectedTimeMs,
+    }),
+  });
+  rules.setDisplayedRadarSamples({
+    chance: 0,
+    displayedFrameId: "knmi-conflict",
+    exactSignal: 0,
+    fetchedAt: Date.now(),
+    nearbySignal: 0,
+    referenceTimeMs: imageReferenceTimeMs,
+    sampleFrameId: "knmi-conflict",
+    sampleTimeMs: imageTimeMs,
+    signal: 0,
+    source: "knmi",
+    timeMs: selectedTimeMs,
+  });
+  rules.setKnmiPointSamples({
+    fetchedAt: Date.now(),
+    referenceTimeMs: pointReferenceTimeMs,
+    signal: pointSignal,
+    timeMs: pointTimeMs,
+  });
+
+  return rules.getSelectedTimePrecipitation(selectedTimeMs);
 }
 
 const rules = loadPrecipitationRules();
@@ -474,6 +555,87 @@ assert.equal(
   61,
   "the selected icon reflects the graph's local wet state",
 );
+
+// A fresh, same-run KNMI point observation may safely correct a dry image only near now.
+const conflictNowMs = Date.now();
+const conflictReferenceTimeMs = conflictNowMs - 5 * 60 * 1000;
+const resolvedPointImageConflict = getKnmiPointImageConflictResult(rules, {
+  imageReferenceTimeMs: conflictReferenceTimeMs,
+  selectedTimeMs: conflictNowMs,
+});
+assert.equal(
+  resolvedPointImageConflict.radarAdjustment?.source,
+  "knmi-point",
+  "near-now same-run wet point evidence overrides a dry KNMI image",
+);
+assert.equal(
+  resolvedPointImageConflict.radarAdjustment?.conflictResolution,
+  "point-wet-over-image-dry",
+  "the safety override explicitly records how the source conflict was resolved",
+);
+assert.equal(
+  resolvedPointImageConflict.radarAdjustment?.conflictingImageExactSignal,
+  0,
+  "the resolved conflict retains the image's exact-location dry signal",
+);
+assert.equal(
+  resolvedPointImageConflict.radarAdjustment?.conflictingImageReferenceTime,
+  conflictReferenceTimeMs,
+  "the resolved conflict retains the shared KNMI reference run",
+);
+assert.ok(resolvedPointImageConflict.chance > 0, "the resolved near-now state is locally wet");
+
+const historicalPointImageConflict = getKnmiPointImageConflictResult(rules, {
+  imageReferenceTimeMs: conflictReferenceTimeMs,
+  selectedTimeMs: conflictNowMs - 11 * 60 * 1000,
+});
+assert.equal(
+  historicalPointImageConflict.radarAdjustment?.source,
+  "knmi-image",
+  "the point-wet/image-dry override is not applied outside the near-now window",
+);
+assert.equal(
+  historicalPointImageConflict.radarAdjustment?.conflictResolution,
+  undefined,
+  "historical source differences remain unresolved evidence rather than a current-rain override",
+);
+
+const mismatchedRunConflict = getKnmiPointImageConflictResult(rules, {
+  imageReferenceTimeMs: conflictReferenceTimeMs,
+  pointReferenceTimeMs: conflictReferenceTimeMs + 5 * 60 * 1000,
+  selectedTimeMs: conflictNowMs,
+});
+assert.equal(
+  mismatchedRunConflict.radarAdjustment?.source,
+  "knmi-image",
+  "point evidence from a different KNMI reference run cannot override the image",
+);
+assert.equal(mismatchedRunConflict.radarAdjustment?.conflictResolution, undefined);
+
+const dryPointConflict = getKnmiPointImageConflictResult(rules, {
+  imageReferenceTimeMs: conflictReferenceTimeMs,
+  pointSignal: 0,
+  selectedTimeMs: conflictNowMs,
+});
+assert.equal(
+  dryPointConflict.radarAdjustment?.source,
+  "knmi-image",
+  "a dry point observation does not trigger the wet-point safety override",
+);
+assert.equal(dryPointConflict.radarAdjustment?.conflictResolution, undefined);
+
+const mismatchedSampleTimeConflict = getKnmiPointImageConflictResult(rules, {
+  imageReferenceTimeMs: conflictReferenceTimeMs,
+  imageTimeMs: conflictNowMs - 4 * 60 * 1000,
+  pointTimeMs: conflictNowMs + 4 * 60 * 1000,
+  selectedTimeMs: conflictNowMs,
+});
+assert.equal(
+  mismatchedSampleTimeConflict.radarAdjustment?.source,
+  "knmi-image",
+  "wet point and dry image samples more than one frame apart cannot be combined",
+);
+assert.equal(mismatchedSampleTimeConflict.radarAdjustment?.conflictResolution, undefined);
 
 // Rain visible only in the wider nearby radius is context, not rain at the marker.
 rules.reset();

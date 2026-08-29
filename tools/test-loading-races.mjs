@@ -408,6 +408,7 @@ globalThis.__mymeteoLoadingTest = {
   displayHybridRadar,
   displayKnmiRadar,
   downloadKnmiRadarMetadataResponse,
+  fetchKnmiRadar,
   getLocationSearchResults() {
     return locationSearchResults;
   },
@@ -554,6 +555,11 @@ globalThis.__mymeteoLoadingTest = {
     if (schedulePreload) {
       scheduleInactiveBuienradarRadarPreload = schedulePreload;
     }
+  },
+  setKnmiRadarDownload(download) {
+    knmiRadarCache = undefined;
+    knmiRadarRequest = undefined;
+    downloadKnmiRadar = download;
   },
   setRadarState({ frames, source }) {
     radarFrames = frames;
@@ -826,6 +832,8 @@ assert.match(indexSource, /aria-label="Location suggestions"/);
   const test = createHarness();
   const pointRain = createDeferred();
   const knmiPointRain = createDeferred();
+  const pointOptions = [];
+  const knmiPointOptions = [];
   const renders = [];
   const blends = [];
   test.setFetch(async () => forecastResponse({ id: "base" }));
@@ -833,10 +841,12 @@ assert.match(indexSource, /aria-label="Location suggestions"/);
     blend(locationKey, requestId) {
       blends.push({ locationKey, requestId });
     },
-    knmiPoint() {
+    knmiPoint(_location, options) {
+      knmiPointOptions.push({ ...options });
       return knmiPointRain.promise;
     },
-    point() {
+    point(_location, options) {
+      pointOptions.push({ ...options });
       return pointRain.promise;
     },
     render(data) {
@@ -850,6 +860,8 @@ assert.match(indexSource, /aria-label="Location suggestions"/);
     test.loadWeather(context),
     "base forecast render while point-rain enrichment is pending",
   );
+  assert.deepEqual(pointOptions, [{ forceRefresh: true }]);
+  assert.deepEqual(knmiPointOptions, [{ forceRefresh: true }]);
   assert.deepEqual(renders, ["base"], "Open-Meteo should render before point rain finishes");
   assert.equal(blends.length, 0);
 
@@ -859,6 +871,26 @@ assert.match(indexSource, /aria-label="Location suggestions"/);
   knmiPointRain.resolve();
   await flushPromises();
   assert.equal(blends.length, 2);
+}
+
+{
+  const test = createHarness();
+  const downloadCalls = [];
+  const timing = { paths: {} };
+  test.setKnmiRadarDownload(async (options) => {
+    downloadCalls.push(options);
+    return { id: "manual-refresh" };
+  });
+
+  const radar = await test.fetchKnmiRadar({ forceRefresh: true, timing });
+  assert.equal(radar.id, "manual-refresh");
+  assert.equal(downloadCalls.length, 1);
+  assert.equal(
+    downloadCalls[0].forceMetadataRefresh,
+    true,
+    "a forced radar refresh must also bypass the client-side KNMI metadata cache",
+  );
+  assert.equal(downloadCalls[0].timing, timing);
 }
 
 {
@@ -1898,7 +1930,7 @@ for (const firstFreshSource of ["knmi", "buienradar"]) {
 
 {
   const test = createHarness();
-  const startTimeMs = Date.UTC(2026, 7, 21, 10, 0, 0);
+  const startTimeMs = Date.now() - 5 * 60 * 1000;
   const radar = test.createRadarFixtures(startTimeMs);
   const knmiRun = createDeferred();
   const buienradarRun = createDeferred();
