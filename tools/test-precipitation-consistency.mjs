@@ -18,7 +18,7 @@ function createDeferred() {
 }
 
 async function flushPromises() {
-  for (let index = 0; index < 6; index += 1) {
+  for (let index = 0; index < 20; index += 1) {
     await Promise.resolve();
   }
 }
@@ -125,6 +125,13 @@ function loadPrecipitationRules() {
     clearTimeout() {},
     dataLayer: [],
     gtag: undefined,
+    getComputedStyle() {
+      return {
+        getPropertyValue() {
+          return "41px";
+        },
+      };
+    },
     localStorage: localStorageStub,
     location: {
       hostname: "127.0.0.1",
@@ -166,9 +173,14 @@ const __originalActiveRainSourceAdjustment = getActiveRainSourceAdjustmentForFor
 const __originalTimelineRadarAdjustment = getPrecipitationTimelineRadarAdjustment;
 const __originalPreloadKnmiFrameImage = preloadKnmiFrameImage;
 const __originalSetKnmiImageLayer = setKnmiImageLayer;
+const __originalSampleKnmiRainFrame = sampleKnmiRainFrame;
+const __originalRenderPrecipitationTimeline = renderPrecipitationTimeline;
+const __originalRevokeFrameUrl = revokeFrameUrl;
+let __recordedFrameUrlRevocations = [];
 globalThis.__mymeteoPrecipitationTest = {
   buildBasePrecipitationChance,
   buildRadarImageTimelinePrecipitation,
+  createPrecipitationTimelineLinePath,
   buildTimelineHourlyPrecipitation(hourly, index, timeMs) {
     return buildTimelineHourlyPrecipitation(hourly, index, new Date(timeMs));
   },
@@ -186,6 +198,7 @@ globalThis.__mymeteoPrecipitationTest = {
     );
   },
   getPrecipitationAdjustedWeatherCode,
+  getPrecipitationTimelineMarkerPosition,
   getPrecipitationTimelineLevel,
   getSelectedTimePrecipitation: typeof getSelectedTimePrecipitation === "function"
     ? (timeMs) => getSelectedTimePrecipitation(new Date(timeMs))
@@ -195,10 +208,32 @@ globalThis.__mymeteoPrecipitationTest = {
     getPrecipitationTimelineRadarAdjustment = __originalTimelineRadarAdjustment;
     preloadKnmiFrameImage = __originalPreloadKnmiFrameImage;
     setKnmiImageLayer = __originalSetKnmiImageLayer;
+    sampleKnmiRainFrame = __originalSampleKnmiRainFrame;
+    renderPrecipitationTimeline = __originalRenderPrecipitationTimeline;
+    revokeFrameUrl = __originalRevokeFrameUrl;
+    __recordedFrameUrlRevocations = [];
     knmiPointRainCache.clear();
     knmiRainSamples = undefined;
+    knmiRainSampleRun = undefined;
+    knmiCommittedFrameUrls = [];
+    knmiCommittedRainSampleRun = undefined;
+    buienradarCommittedFrameUrls = [];
+    buienradarCommittedModeId = buienradarDefaultRadarModeId;
+    buienradarCommittedRainSamples = undefined;
+    buienradarRetainedFrameUrlsToRevoke.clear();
+    buienradarLayer = undefined;
+    buienradarLayerKey = undefined;
+    buienradarNextLayer = undefined;
+    buienradarNextLayerKey = undefined;
+    knmiFrameRenderRequestId = 0;
+    radarDisplayReplacement = undefined;
     displayedRadarSource = undefined;
+    committedRadarSource = "none";
+    committedRadarSliderMin = 0;
+    activeRadarDate = undefined;
     weatherData = undefined;
+    elements.radarMapStatus.hidden = true;
+    elements.radarMapStatus.textContent = "";
   },
   configureKnmiFrameRendering({ frameIds, loadedFrameIds, startTimeMs }) {
     knmiFrameUrls = [...frameIds];
@@ -209,15 +244,69 @@ globalThis.__mymeteoPrecipitationTest = {
     knmiLayerKey = 0;
     knmiNextLayer = undefined;
     knmiNextLayerKey = undefined;
+    knmiRainSampleRun = undefined;
+    knmiCommittedFrameUrls = knmiFrameUrls;
+    knmiCommittedRainSampleRun = undefined;
     knmiFrameRenderRequestId = 0;
     displayedRadarSource = "knmi";
+    committedRadarSource = "knmi";
+    committedRadarSliderMin = 0;
+    activeRadarDate = knmiFrameDates[0];
+    elements.radarSlider.min = "0";
+    elements.radarSlider.max = String(Math.max((frameIds.length - 1) * 100, 0));
+    elements.radarSlider.value = "0";
+  },
+  configureKnmiFrameSampling({ sampledFrameIndexes = [] } = {}) {
+    const radar = {
+      frameUrls: knmiFrameUrls,
+      frameDates: knmiFrameDates,
+      startDate: knmiStartDate,
+      referenceDate: knmiStartDate,
+      fetchedAt: Date.now(),
+    };
+    const locationKey = getBuienradarSampleLocationKey(selectedLocation);
+    knmiRainSampleRun = createKnmiRainSampleRun(radar, selectedLocation, locationKey);
+    sampledFrameIndexes.forEach((index) => {
+      knmiRainSampleRun.samplesByIndex.set(index, {
+        chance: 0,
+        exactCoverage: 0,
+        exactIntensityRank: 0,
+        exactIntensitySignal: 0,
+        exactSignal: 0,
+        intensityRank: 0,
+        intensitySignal: 0,
+        nearbyCoverage: 0,
+        nearbyIntensityRank: 0,
+        nearbySignal: 0,
+        signal: 0,
+        time: knmiFrameDates[index].getTime(),
+      });
+    });
+  },
+  stageKnmiFrameGeneration({ frameIds, startTimeMs }) {
+    const nextFrameUrls = [...frameIds];
+    stageRadarDisplayReplacement(nextFrameUrls);
+    prepareKnmiLayersForReplacement();
+    radarFrames = [];
+    resetHybridRadarRange();
+    displayedRadarSource = "knmi";
+    knmiFrameUrls = nextFrameUrls;
+    knmiFrameDates = frameIds.map((_, index) => new Date(startTimeMs + index * 5 * 60 * 1000));
+    knmiStartDate = knmiFrameDates[0];
+    knmiReferenceDate = knmiStartDate;
+    knmiRainSampleRun = undefined;
+    elements.radarSlider.disabled = frameIds.length < 2;
+    elements.radarSlider.min = "0";
+    elements.radarSlider.max = String(Math.max((frameIds.length - 1) * 100, 0));
+    elements.radarSlider.step = "1";
+    elements.radarSlider.value = "0";
   },
   getDisplayedRadarSample(timeMs) {
     const sampleSeries = getPrecipitationTimelineRadarSampleSeries(new Date(timeMs));
     return sampleSeries
       ? {
-        frameMatchesKnmi: sampleSeries.frameUrls === knmiFrameUrls,
-        frameMatchesBuienradar: sampleSeries.frameUrls === buienradarFrameUrls,
+        frameMatchesKnmi: sampleSeries.frameUrls === knmiCommittedFrameUrls,
+        frameMatchesBuienradar: sampleSeries.frameUrls === buienradarCommittedFrameUrls,
         modeId: sampleSeries.modeId,
         source: sampleSeries.source,
       }
@@ -274,16 +363,24 @@ globalThis.__mymeteoPrecipitationTest = {
     };
 
     displayedRadarSource = source;
+    committedRadarSource = source;
     if (source === "knmi") {
       knmiFrameUrls = displayedFrames;
       knmiFrameDates = [new Date(timeMs)];
       knmiStartDate = knmiFrameDates[0];
       knmiRainSamples = sampleSeries;
+      knmiCommittedFrameUrls = displayedFrames;
+      knmiCommittedRainSampleRun = undefined;
     } else {
       loadedBuienradarRadarModeId = displayedModeId;
       buienradarFrameUrls = displayedFrames;
       buienradarStartDate = new Date(timeMs);
       buienradarRainSamples = new Map([[sampleModeId, sampleSeries]]);
+      buienradarLayer = { mymeteoFrameIndex: 0 };
+      buienradarLayerKey = 0;
+      buienradarCommittedFrameUrls = displayedFrames;
+      buienradarCommittedModeId = displayedModeId;
+      buienradarCommittedRainSamples = sampleSeries;
     }
   },
   setKnmiPointSamples({
@@ -314,9 +411,52 @@ globalThis.__mymeteoPrecipitationTest = {
       }],
     });
   },
-  setKnmiFrameRenderingDependencies({ preload, setLayer }) {
-    preloadKnmiFrameImage = preload;
-    setKnmiImageLayer = setLayer;
+  setKnmiFrameRenderingDependencies({ preload, renderTimeline, sampleFrame, setLayer }) {
+    if (preload) {
+      preloadKnmiFrameImage = preload;
+    }
+    if (sampleFrame) {
+      sampleKnmiRainFrame = sampleFrame;
+    }
+    if (setLayer) {
+      setKnmiImageLayer = setLayer;
+    }
+    if (renderTimeline) {
+      renderPrecipitationTimeline = renderTimeline;
+    }
+  },
+  getRadarUiState() {
+    return {
+      activeTimeMs: activeRadarDate?.getTime(),
+      sliderMin: elements.radarSlider.min,
+      sliderValue: elements.radarSlider.value,
+      statusHidden: elements.radarMapStatus.hidden,
+      statusText: elements.radarMapStatus.textContent,
+    };
+  },
+  getRadarSelectionIdentity() {
+    return {
+      frameIds: [...knmiFrameUrls],
+      rangeStartTimeMs: getRadarTimeRange()?.start?.getTime(),
+      sliderTimeMs: getRadarDateForSlider(Number(elements.radarSlider.value) || 0)?.getTime(),
+    };
+  },
+  getPublishedKnmiSampleCount() {
+    return knmiRainSamples?.samples?.length || 0;
+  },
+  getKnmiLayerRetentionState() {
+    return {
+      committedFrameCount: knmiCommittedFrameUrls.length,
+      hasLayer: Boolean(knmiLayer),
+      layerKey: knmiLayerKey,
+      nextLayerKey: knmiNextLayerKey,
+    };
+  },
+  prepareKnmiLayersForReplacement,
+  prepareCurrentKnmiRainSamples() {
+    if (knmiRainSampleRun?.radar) {
+      prepareKnmiRainSamples(knmiRainSampleRun.radar);
+    }
   },
   setActiveRainSourceAdjustment(adjustment) {
     getActiveRainSourceAdjustmentForForecastTime = () => adjustment;
@@ -324,6 +464,40 @@ globalThis.__mymeteoPrecipitationTest = {
   setTimelineRadarAdjustment(adjustment) {
     getPrecipitationTimelineRadarAdjustment = () => adjustment;
   },
+  setRadarSliderValue(value) {
+    elements.radarSlider.value = String(value);
+  },
+  setRadarSliderMinimum(value) {
+    elements.radarSlider.min = String(value);
+  },
+  stageBuienradarReplacement(frameIds) {
+    const previousFrameUrls = buienradarFrameUrls;
+    prepareBuienradarLayersForReplacement();
+    if (!isBuienradarFrameUrlsCached(previousFrameUrls)) {
+      previousFrameUrls.forEach((url) => buienradarRetainedFrameUrlsToRevoke.add(url));
+    }
+    buienradarFrameUrls = [...frameIds];
+    displayedRadarSource = "hybrid";
+  },
+  commitBuienradarReplacement() {
+    commitBuienradarFrameGeneration();
+    releaseRetainedBuienradarFrameUrls();
+  },
+  recordFrameUrlRevocations() {
+    __recordedFrameUrlRevocations = [];
+    revokeFrameUrl = (url) => __recordedFrameUrlRevocations.push(url);
+  },
+  getRecordedFrameUrlRevocations() {
+    return [...__recordedFrameUrlRevocations];
+  },
+  getBuienradarLayerRetentionState() {
+    return {
+      committedFrameIds: [...buienradarCommittedFrameUrls],
+      hasLayer: Boolean(buienradarLayer),
+      layerKey: buienradarLayerKey,
+    };
+  },
+  setKnmiFramePosition,
   setWeatherData(data) {
     weatherData = data;
   },
@@ -391,10 +565,19 @@ function hourlyFixture({ chances, codes, rainAmounts, startTimeMs }) {
   };
 }
 
-function getKnmiPointImageConflictResult(rules, {
+function getKnmiImagePointResult(rules, {
   selectedTimeMs,
   imageReferenceTimeMs,
   imageTimeMs = selectedTimeMs,
+  imageSignal = 0,
+  imageChance = imageSignal > 0.02 ? 70 : 0,
+  imageIntensityRank = imageSignal > 0.02 ? 1 : 0,
+  imageIntensitySignal = imageSignal > 0.02 ? 0.2 : 0,
+  includeImage = true,
+  includePoint = true,
+  modelChance = 0,
+  modelCode = 3,
+  modelRain = 0,
   pointReferenceTimeMs = imageReferenceTimeMs,
   pointSignal = 0.3,
   pointTimeMs = selectedTimeMs,
@@ -402,31 +585,37 @@ function getKnmiPointImageConflictResult(rules, {
   rules.reset();
   rules.setWeatherData({
     hourly: hourlyFixture({
-      chances: [0],
-      codes: [3],
-      rainAmounts: [0],
+      chances: [modelChance],
+      codes: [modelCode],
+      rainAmounts: [modelRain],
       startTimeMs: selectedTimeMs,
     }),
   });
-  rules.setDisplayedRadarSamples({
-    chance: 0,
-    displayedFrameId: "knmi-conflict",
-    exactSignal: 0,
-    fetchedAt: Date.now(),
-    nearbySignal: 0,
-    referenceTimeMs: imageReferenceTimeMs,
-    sampleFrameId: "knmi-conflict",
-    sampleTimeMs: imageTimeMs,
-    signal: 0,
-    source: "knmi",
-    timeMs: selectedTimeMs,
-  });
-  rules.setKnmiPointSamples({
-    fetchedAt: Date.now(),
-    referenceTimeMs: pointReferenceTimeMs,
-    signal: pointSignal,
-    timeMs: pointTimeMs,
-  });
+  if (includeImage) {
+    rules.setDisplayedRadarSamples({
+      chance: imageChance,
+      displayedFrameId: "knmi-image",
+      exactSignal: imageSignal,
+      fetchedAt: Date.now(),
+      intensityRank: imageIntensityRank,
+      intensitySignal: imageIntensitySignal,
+      nearbySignal: imageSignal,
+      referenceTimeMs: imageReferenceTimeMs,
+      sampleFrameId: "knmi-image",
+      sampleTimeMs: imageTimeMs,
+      signal: imageSignal,
+      source: "knmi",
+      timeMs: selectedTimeMs,
+    });
+  }
+  if (includePoint) {
+    rules.setKnmiPointSamples({
+      fetchedAt: Date.now(),
+      referenceTimeMs: pointReferenceTimeMs,
+      signal: pointSignal,
+      timeMs: pointTimeMs,
+    });
+  }
 
   return rules.getSelectedTimePrecipitation(selectedTimeMs);
 }
@@ -436,6 +625,20 @@ assert.equal(
   typeof rules.getSelectedTimePrecipitation,
   "function",
   "app exposes one canonical selected-time precipitation builder",
+);
+assert.deepEqual(
+  [0, 0.5, 1].map((progress) => rules.getPrecipitationTimelineMarkerPosition(progress)),
+  [0, 50, 100],
+  "the graph marker uses the same normalized start, midpoint, and end as the slider thumb",
+);
+assert.equal(
+  rules.createPrecipitationTimelineLinePath([
+    { x: 0, y: 60 },
+    { x: 50, y: 30 },
+    { x: 100, y: 10 },
+  ]),
+  "M 0 60 L 50 30 L 100 10",
+  "the graph line passes through every canonical five-minute sample",
 );
 
 // Radar evidence must be retained even when display rounding and intensity do not change.
@@ -559,86 +762,52 @@ assert.equal(
   "the selected icon reflects the graph's local wet state",
 );
 
-// A fresh, same-run KNMI point observation may safely correct a dry image only near now.
-const conflictNowMs = Date.now();
-const conflictReferenceTimeMs = conflictNowMs - 5 * 60 * 1000;
-const resolvedPointImageConflict = getKnmiPointImageConflictResult(rules, {
-  imageReferenceTimeMs: conflictReferenceTimeMs,
-  selectedTimeMs: conflictNowMs,
+// A displayed KNMI image is authoritative; point/model data is fallback only without image evidence.
+const authorityNowMs = Date.now();
+const authorityReferenceTimeMs = authorityNowMs - 5 * 60 * 1000;
+const dryImageWetPoint = getKnmiImagePointResult(rules, {
+  imageReferenceTimeMs: authorityReferenceTimeMs,
+  selectedTimeMs: authorityNowMs,
 });
 assert.equal(
-  resolvedPointImageConflict.radarAdjustment?.source,
-  "knmi-point",
-  "near-now same-run wet point evidence overrides a dry KNMI image",
-);
-assert.equal(
-  resolvedPointImageConflict.radarAdjustment?.conflictResolution,
-  "point-wet-over-image-dry",
-  "the safety override explicitly records how the source conflict was resolved",
-);
-assert.equal(
-  resolvedPointImageConflict.radarAdjustment?.conflictingImageExactSignal,
-  0,
-  "the resolved conflict retains the image's exact-location dry signal",
-);
-assert.equal(
-  resolvedPointImageConflict.radarAdjustment?.conflictingImageReferenceTime,
-  conflictReferenceTimeMs,
-  "the resolved conflict retains the shared KNMI reference run",
-);
-assert.ok(resolvedPointImageConflict.chance > 0, "the resolved near-now state is locally wet");
-
-const historicalPointImageConflict = getKnmiPointImageConflictResult(rules, {
-  imageReferenceTimeMs: conflictReferenceTimeMs,
-  selectedTimeMs: conflictNowMs - 11 * 60 * 1000,
-});
-assert.equal(
-  historicalPointImageConflict.radarAdjustment?.source,
+  dryImageWetPoint.radarAdjustment?.source,
   "knmi-image",
-  "the point-wet/image-dry override is not applied outside the near-now window",
+  "a dry displayed image remains authoritative when the same-run point signal is wet",
 );
-assert.equal(
-  historicalPointImageConflict.radarAdjustment?.conflictResolution,
-  undefined,
-  "historical source differences remain unresolved evidence rather than a current-rain override",
-);
+assert.equal(dryImageWetPoint.chance, 0, "the dry displayed image keeps the canonical state dry");
+assert.equal(dryImageWetPoint.radarAdjustment?.conflictResolution, undefined);
 
-const mismatchedRunConflict = getKnmiPointImageConflictResult(rules, {
-  imageReferenceTimeMs: conflictReferenceTimeMs,
-  pointReferenceTimeMs: conflictReferenceTimeMs + 5 * 60 * 1000,
-  selectedTimeMs: conflictNowMs,
+const pointOnly = getKnmiImagePointResult(rules, {
+  imageReferenceTimeMs: authorityReferenceTimeMs,
+  includeImage: false,
+  selectedTimeMs: authorityNowMs,
 });
-assert.equal(
-  mismatchedRunConflict.radarAdjustment?.source,
-  "knmi-image",
-  "point evidence from a different KNMI reference run cannot override the image",
-);
-assert.equal(mismatchedRunConflict.radarAdjustment?.conflictResolution, undefined);
+assert.equal(pointOnly.radarAdjustment?.source, "knmi-point", "the point signal remains the fallback without an image sample");
+assert.ok(pointOnly.chance > 0, "the wet point fallback keeps the canonical state wet");
 
-const dryPointConflict = getKnmiPointImageConflictResult(rules, {
-  imageReferenceTimeMs: conflictReferenceTimeMs,
+const wetImageDryPoint = getKnmiImagePointResult(rules, {
+  imageChance: 90,
+  imageIntensityRank: 3,
+  imageIntensitySignal: 0.85,
+  imageReferenceTimeMs: authorityReferenceTimeMs,
+  imageSignal: 0.8,
   pointSignal: 0,
-  selectedTimeMs: conflictNowMs,
+  selectedTimeMs: authorityNowMs,
 });
-assert.equal(
-  dryPointConflict.radarAdjustment?.source,
-  "knmi-image",
-  "a dry point observation does not trigger the wet-point safety override",
-);
-assert.equal(dryPointConflict.radarAdjustment?.conflictResolution, undefined);
+assert.equal(wetImageDryPoint.radarAdjustment?.source, "knmi-image", "a wet displayed image remains authoritative over a dry point");
+assert.equal(wetImageDryPoint.intensity, "heavy", "the displayed image retains its local intensity");
 
-const mismatchedSampleTimeConflict = getKnmiPointImageConflictResult(rules, {
-  imageReferenceTimeMs: conflictReferenceTimeMs,
-  imageTimeMs: conflictNowMs - 4 * 60 * 1000,
-  pointTimeMs: conflictNowMs + 4 * 60 * 1000,
-  selectedTimeMs: conflictNowMs,
+const modelOnly = getKnmiImagePointResult(rules, {
+  imageReferenceTimeMs: authorityReferenceTimeMs,
+  includeImage: false,
+  includePoint: false,
+  modelChance: 65,
+  modelCode: 61,
+  modelRain: 0.4,
+  selectedTimeMs: authorityNowMs,
 });
-assert.equal(
-  mismatchedSampleTimeConflict.radarAdjustment?.source,
-  "knmi-image",
-  "wet point and dry image samples more than one frame apart cannot be combined",
-);
-assert.equal(mismatchedSampleTimeConflict.radarAdjustment?.conflictResolution, undefined);
+assert.equal(modelOnly.radarAdjustment, undefined, "model data remains the final fallback without image or point evidence");
+assert.equal(modelOnly.chance, 65, "the model fallback preserves its rain chance");
 
 // Rain visible only in the wider nearby radius is context, not rain at the marker.
 rules.reset();
@@ -780,6 +949,44 @@ assert.equal(
   true,
   "the exact displayed Buienradar series stays valid onscreen independently of cache age",
 );
+rules.stageBuienradarReplacement(["buienradar-new"]);
+const retainedBuienradarState = rules.getBuienradarLayerRetentionState();
+assert.deepEqual(
+  [...retainedBuienradarState.committedFrameIds],
+  ["buienradar-current"],
+  "a staged Buienradar replacement keeps the prior committed generation",
+);
+assert.equal(retainedBuienradarState.hasLayer, true, "the prior Buienradar map layer remains visible");
+assert.equal(retainedBuienradarState.layerKey, undefined, "the retained layer is invalidated for atomic replacement");
+assert.deepEqual(
+  { ...rules.getDisplayedRadarSample(displayedSampleTimeMs) },
+  {
+    frameMatchesKnmi: false,
+    frameMatchesBuienradar: true,
+    modeId: "8h",
+    source: "radar-image",
+  },
+  "a staged hybrid/KNMI replacement keeps precipitation tied to the committed Buienradar image",
+);
+
+// Overlapping replacements never revoke the generation that becomes current again.
+rules.reset();
+rules.recordFrameUrlRevocations();
+rules.setDisplayedRadarSamples({
+  displayedFrameId: "buienradar-a",
+  displayedModeId: "3h",
+  sampleFrameId: "buienradar-a",
+  source: "buienradar",
+  timeMs: displayedSampleTimeMs,
+});
+rules.stageBuienradarReplacement(["buienradar-b"]);
+rules.stageBuienradarReplacement(["buienradar-a"]);
+rules.commitBuienradarReplacement();
+assert.deepEqual(
+  [...rules.getRecordedFrameUrlRevocations()],
+  ["buienradar-b"],
+  "overlapping replacements release only the abandoned generation, never the recommitted one",
+);
 
 // Image signals use the same continuous lower/upper weights as the map crossfade.
 const interpolationStartMs = Date.UTC(2026, 7, 26, 19);
@@ -914,10 +1121,310 @@ const pointAdjustment = rules.getInstantAdjustment(
 );
 assert.equal(pointAdjustment.signal, 0, "point observations retain nearest-sample semantics");
 
-// A requested KNMI frame redraws after preload, but obsolete preloads cannot snap the map back.
+// Preparing a refreshed KNMI generation keeps the last coherent image and sample generation visible.
+rules.reset();
+rules.configureKnmiFrameRendering({
+  frameIds: ["knmi-old-0", "knmi-old-1"],
+  loadedFrameIds: ["knmi-old-0", "knmi-old-1"],
+  startTimeMs: interpolationStartMs,
+});
+rules.prepareKnmiLayersForReplacement();
+assert.deepEqual(
+  { ...rules.getKnmiLayerRetentionState() },
+  {
+    committedFrameCount: 2,
+    hasLayer: true,
+    layerKey: undefined,
+    nextLayerKey: undefined,
+  },
+  "a radar refresh retains the committed layer while invalidating its keys for atomic replacement",
+);
+
+// A KNMI selection commits only after its image and exact-location samples are both ready.
+rules.reset();
+const pendingSample = createDeferred();
+const gatedLayerCalls = [];
+const gatedCommitCalls = [];
+const gatedCommitSampleSources = [];
+rules.configureKnmiFrameRendering({
+  frameIds: ["knmi-0", "knmi-1"],
+  loadedFrameIds: ["knmi-0", "knmi-1"],
+  startTimeMs: interpolationStartMs,
+});
+rules.configureKnmiFrameSampling({ sampledFrameIndexes: [0] });
+rules.setKnmiFrameRenderingDependencies({
+  sampleFrame(_sampleRun, frameIndex) {
+    assert.equal(frameIndex, 1);
+    return pendingSample.promise;
+  },
+  setLayer(_layer, _currentKey, frameIndex) {
+    gatedLayerCalls.push(frameIndex);
+    return { mymeteoFrameIndex: frameIndex };
+  },
+});
+rules.renderKnmiFramePosition(0.5, {
+  onCommit(frameDate) {
+    gatedCommitCalls.push(frameDate.getTime());
+    gatedCommitSampleSources.push(rules.getDisplayedRadarSample(frameDate.getTime())?.source);
+  },
+});
+assert.deepEqual(gatedLayerCalls, [], "the map stays on its committed frame while local sampling is pending");
+assert.deepEqual(gatedCommitCalls, [], "the card/time callback also stays unchanged while sampling is pending");
+pendingSample.resolve({
+  chance: 0,
+  exactCoverage: 0,
+  exactIntensityRank: 0,
+  exactIntensitySignal: 0,
+  exactSignal: 0,
+  intensityRank: 0,
+  intensitySignal: 0,
+  nearbyCoverage: 0,
+  nearbyIntensityRank: 0,
+  nearbySignal: 0,
+  signal: 0,
+  time: interpolationStartMs + 5 * 60 * 1000,
+});
+await flushPromises();
+assert.deepEqual(gatedLayerCalls, [0, 1], "both crossfade layers install after both local samples settle");
+assert.deepEqual(gatedCommitCalls, [interpolationStartMs + 150 * 1000], "map and selected UI commit once at the interpolated time");
+assert.deepEqual(
+  gatedCommitSampleSources,
+  ["knmi-image"],
+  "the selected local image samples are published before the card and graph commit callback",
+);
+
+// A genuinely failed image sample may commit the visible image, but precipitation falls back to point data.
+rules.reset();
+const failedSampleCommitCalls = [];
+rules.configureKnmiFrameRendering({
+  frameIds: ["knmi-0", "knmi-1"],
+  loadedFrameIds: ["knmi-0", "knmi-1"],
+  startTimeMs: interpolationStartMs,
+});
+rules.configureKnmiFrameSampling({ sampledFrameIndexes: [0] });
+rules.setWeatherData({
+  hourly: hourlyFixture({
+    chances: [0],
+    codes: [3],
+    rainAmounts: [0],
+    startTimeMs: interpolationStartMs,
+  }),
+});
+rules.setKnmiPointSamples({
+  referenceTimeMs: interpolationStartMs,
+  signal: 0.3,
+  timeMs: interpolationStartMs + 150 * 1000,
+});
+rules.setKnmiFrameRenderingDependencies({
+  sampleFrame() {
+    return undefined;
+  },
+  setLayer(_layer, _currentKey, frameIndex) {
+    return { mymeteoFrameIndex: frameIndex };
+  },
+});
+rules.renderKnmiFramePosition(0.5, {
+  onCommit(frameDate) {
+    failedSampleCommitCalls.push(frameDate.getTime());
+  },
+});
+await flushPromises();
+assert.deepEqual(failedSampleCommitCalls, [interpolationStartMs + 150 * 1000], "a settled sampling failure does not leave the map waiting forever");
+const failedImageFallback = rules.getSelectedTimePrecipitation(interpolationStartMs + 150 * 1000);
+assert.equal(failedImageFallback.radarAdjustment?.source, "knmi-point", "a missing required image sample falls back to the KNMI point reading");
+
+// Already-loaded and already-sampled frames keep the synchronous fast path.
+rules.reset();
+const readyLayerCalls = [];
+const readyCommitCalls = [];
+rules.configureKnmiFrameRendering({
+  frameIds: ["knmi-0", "knmi-1"],
+  loadedFrameIds: ["knmi-0", "knmi-1"],
+  startTimeMs: interpolationStartMs,
+});
+rules.configureKnmiFrameSampling({ sampledFrameIndexes: [0, 1] });
+rules.setKnmiFrameRenderingDependencies({
+  setLayer(_layer, _currentKey, frameIndex) {
+    readyLayerCalls.push(frameIndex);
+    return { mymeteoFrameIndex: frameIndex };
+  },
+});
+rules.renderKnmiFramePosition(1, {
+  onCommit(frameDate) {
+    readyCommitCalls.push(frameDate.getTime());
+  },
+});
+assert.deepEqual(readyLayerCalls, [1], "ready KNMI frames render synchronously");
+assert.deepEqual(readyCommitCalls, [interpolationStartMs + 5 * 60 * 1000], "ready selected UI commits synchronously");
+
+// The normal selection path redraws the graph in the same commit as the map and card.
+rules.reset();
+let committedTimelineRenderCount = 0;
+rules.configureKnmiFrameRendering({
+  frameIds: ["knmi-0", "knmi-1"],
+  loadedFrameIds: ["knmi-0", "knmi-1"],
+  startTimeMs: interpolationStartMs,
+});
+rules.configureKnmiFrameSampling({ sampledFrameIndexes: [0, 1] });
+rules.setKnmiFrameRenderingDependencies({
+  renderTimeline() {
+    committedTimelineRenderCount += 1;
+  },
+  setLayer(_layer, _currentKey, frameIndex) {
+    return { mymeteoFrameIndex: frameIndex };
+  },
+});
+rules.setRadarSliderValue(100);
+rules.setKnmiFramePosition(100);
+assert.equal(committedTimelineRenderCount, 1, "the precipitation graph redraws with the committed local samples");
+assert.equal(
+  rules.getRadarUiState().activeTimeMs,
+  interpolationStartMs + 5 * 60 * 1000,
+  "the selected card time changes in that same successful commit",
+);
+
+// A failed target image retains the committed view and restores the slider to it.
+rules.reset();
+const failedFramePreload = createDeferred();
+const failedFrameLayerCalls = [];
+let failedTimelineRenderCount = 0;
+rules.configureKnmiFrameRendering({
+  frameIds: ["knmi-0", "knmi-1"],
+  loadedFrameIds: ["knmi-0"],
+  startTimeMs: interpolationStartMs,
+});
+rules.setKnmiFrameRenderingDependencies({
+  preload() {
+    return failedFramePreload.promise;
+  },
+  renderTimeline() {
+    failedTimelineRenderCount += 1;
+  },
+  setLayer(_layer, _currentKey, frameIndex) {
+    failedFrameLayerCalls.push(frameIndex);
+    return { mymeteoFrameIndex: frameIndex };
+  },
+});
+rules.setRadarSliderMinimum(100);
+rules.setRadarSliderValue(100);
+rules.setKnmiFramePosition(100);
+assert.equal(rules.getRadarUiState().sliderValue, "100", "the thumb may follow the requested time while its image loads");
+failedFramePreload.resolve(false);
+await flushPromises();
+assert.deepEqual(failedFrameLayerCalls, [], "an unavailable target never replaces the committed map layer");
+assert.equal(failedTimelineRenderCount, 1, "an unavailable target restores the graph range for the committed time");
+assert.deepEqual(
+  { ...rules.getRadarUiState() },
+  {
+    activeTimeMs: interpolationStartMs,
+    sliderMin: "0",
+    sliderValue: "0",
+    statusHidden: false,
+    statusText: "Radar frame unavailable · showing previous time",
+  },
+  "a failed frame restores the slider and explicitly keeps the previous coherent time",
+);
+
+// A failed replacement run restores the old time range as well as its old image.
+rules.reset();
+const shiftedRunPreload = createDeferred();
+let shiftedRunTimelineRenderCount = 0;
+rules.configureKnmiFrameRendering({
+  frameIds: ["old-knmi-0", "old-knmi-1"],
+  loadedFrameIds: ["old-knmi-0", "old-knmi-1"],
+  startTimeMs: interpolationStartMs,
+});
+rules.setKnmiFrameRenderingDependencies({
+  preload(frameId) {
+    assert.equal(frameId, "new-knmi-0");
+    return shiftedRunPreload.promise;
+  },
+  renderTimeline() {
+    shiftedRunTimelineRenderCount += 1;
+  },
+  setLayer(_layer, _currentKey, frameIndex) {
+    return { mymeteoFrameIndex: frameIndex };
+  },
+});
+rules.stageKnmiFrameGeneration({
+  frameIds: ["new-knmi-0", "new-knmi-1"],
+  startTimeMs: interpolationStartMs + 5 * 60 * 1000,
+});
+rules.setKnmiFramePosition(0);
+assert.equal(
+  rules.getRadarSelectionIdentity().sliderTimeMs,
+  interpolationStartMs + 5 * 60 * 1000,
+  "the pending replacement can temporarily give the thumb its newer time range",
+);
+shiftedRunPreload.resolve(false);
+await flushPromises();
+const restoredRunIdentity = rules.getRadarSelectionIdentity();
+assert.deepEqual(
+  [...restoredRunIdentity.frameIds],
+  ["old-knmi-0", "old-knmi-1"],
+  "a failed replacement restores the complete previous radar generation",
+);
+assert.equal(restoredRunIdentity.rangeStartTimeMs, interpolationStartMs, "the old radar range is restored");
+assert.equal(restoredRunIdentity.sliderTimeMs, interpolationStartMs, "the restored thumb represents the retained image time");
+assert.equal(rules.getRadarUiState().activeTimeMs, interpolationStartMs, "the card remains on that same retained time");
+assert.equal(rules.getKnmiLayerRetentionState().layerKey, 0, "the retained image keeps its original frame identity");
+assert.equal(shiftedRunTimelineRenderCount, 1, "the graph redraws once against the restored time range");
+
+// Samples that finish for the retained run while a replacement is pending are republished on rollback.
+rules.reset();
+const retainedRunSample = createDeferred();
+const failedReplacementPreload = createDeferred();
+rules.configureKnmiFrameRendering({
+  frameIds: ["retained-knmi-0", "retained-knmi-1"],
+  loadedFrameIds: ["retained-knmi-0", "retained-knmi-1"],
+  startTimeMs: interpolationStartMs,
+});
+rules.configureKnmiFrameSampling({ sampledFrameIndexes: [0] });
+rules.setKnmiFrameRenderingDependencies({
+  preload(frameId) {
+    assert.equal(frameId, "replacement-knmi-0");
+    return failedReplacementPreload.promise;
+  },
+  sampleFrame(_sampleRun, frameIndex) {
+    assert.equal(frameIndex, 1);
+    return retainedRunSample.promise;
+  },
+  setLayer(_layer, _currentKey, frameIndex) {
+    return { mymeteoFrameIndex: frameIndex };
+  },
+});
+rules.renderKnmiFramePosition(0);
+assert.equal(rules.getPublishedKnmiSampleCount(), 1, "the retained generation begins with its committed local sample");
+rules.prepareCurrentKnmiRainSamples();
+await flushPromises();
+rules.stageKnmiFrameGeneration({
+  frameIds: ["replacement-knmi-0", "replacement-knmi-1"],
+  startTimeMs: interpolationStartMs + 5 * 60 * 1000,
+});
+rules.setKnmiFramePosition(0);
+retainedRunSample.resolve({
+  ...dryFrameSample,
+  time: interpolationStartMs + 5 * 60 * 1000,
+});
+await flushPromises();
+assert.equal(
+  rules.getPublishedKnmiSampleCount(),
+  1,
+  "a retained run finishing in the background does not publish into the staged replacement",
+);
+failedReplacementPreload.resolve(false);
+await flushPromises();
+assert.equal(
+  rules.getPublishedKnmiSampleCount(),
+  2,
+  "rollback republishes every local image sample that completed for the restored generation",
+);
+
+// A requested KNMI frame redraws after preload, but obsolete preloads cannot snap the map or UI back.
 rules.reset();
 const firstFramePreload = createDeferred();
 const firstFrameLayerCalls = [];
+const firstFrameCommitCalls = [];
 rules.configureKnmiFrameRendering({
   frameIds: ["knmi-0", "knmi-1"],
   loadedFrameIds: ["knmi-0"],
@@ -933,17 +1440,24 @@ rules.setKnmiFrameRenderingDependencies({
     return { mymeteoFrameIndex: frameIndex };
   },
 });
-rules.renderKnmiFramePosition(1);
+rules.renderKnmiFramePosition(1, {
+  onCommit(frameDate) {
+    firstFrameCommitCalls.push(frameDate.getTime());
+  },
+});
 assert.deepEqual(firstFrameLayerCalls, [], "the previous KNMI image stays visible while the target loads");
+assert.deepEqual(firstFrameCommitCalls, [], "the selected UI stays on the previous committed time while the target loads");
 rules.markKnmiFrameLoaded("knmi-1");
 firstFramePreload.resolve(true);
 await flushPromises();
 assert.deepEqual(firstFrameLayerCalls, [1], "the loaded target redraws without another slider event");
+assert.deepEqual(firstFrameCommitCalls, [interpolationStartMs + 5 * 60 * 1000], "the loaded map and selected UI commit together");
 
 rules.reset();
 const obsoleteFramePreload = createDeferred();
 const currentFramePreload = createDeferred();
 const racedFrameLayerCalls = [];
+const racedCommitCalls = [];
 rules.configureKnmiFrameRendering({
   frameIds: ["knmi-0", "knmi-1", "knmi-2"],
   loadedFrameIds: ["knmi-0"],
@@ -958,15 +1472,25 @@ rules.setKnmiFrameRenderingDependencies({
     return { mymeteoFrameIndex: frameIndex };
   },
 });
-rules.renderKnmiFramePosition(1);
-rules.renderKnmiFramePosition(2);
+rules.renderKnmiFramePosition(1, {
+  onCommit() {
+    racedCommitCalls.push(1);
+  },
+});
+rules.renderKnmiFramePosition(2, {
+  onCommit() {
+    racedCommitCalls.push(2);
+  },
+});
 rules.markKnmiFrameLoaded("knmi-1");
 obsoleteFramePreload.resolve(true);
 await flushPromises();
 assert.deepEqual(racedFrameLayerCalls, [], "a completed obsolete preload cannot redraw an earlier selection");
+assert.deepEqual(racedCommitCalls, [], "an obsolete preload cannot update the selected card/time either");
 rules.markKnmiFrameLoaded("knmi-2");
 currentFramePreload.resolve(true);
 await flushPromises();
 assert.deepEqual(racedFrameLayerCalls, [2], "only the latest requested KNMI frame may redraw");
+assert.deepEqual(racedCommitCalls, [2], "only the latest requested KNMI frame may commit selected UI");
 
 console.log("MyMeteo precipitation consistency checks passed.");

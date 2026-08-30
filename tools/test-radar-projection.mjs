@@ -176,7 +176,10 @@ function assertApproximatelyEqual(actual, expected, tolerance, message) {
   );
 }
 
-function createSyntheticKnmiContext(rainPixel) {
+function createSyntheticKnmiContext(rainPixel, {
+  radius = 1,
+  rgba = [85, 85, 85, 255],
+} = {}) {
   return {
     getImageData(left, top, width, height) {
       const data = new Uint8ClampedArray(width * height * 4);
@@ -185,15 +188,15 @@ function createSyntheticKnmiContext(rainPixel) {
         for (let x = 0; x < width; x += 1) {
           const absoluteX = left + x;
           const absoluteY = top + y;
-          if (Math.hypot(absoluteX - rainPixel.x, absoluteY - rainPixel.y) > 1) {
+          if (Math.hypot(absoluteX - rainPixel.x, absoluteY - rainPixel.y) > radius) {
             continue;
           }
 
           const offset = (y * width + x) * 4;
-          data[offset] = 85;
-          data[offset + 1] = 85;
-          data[offset + 2] = 85;
-          data[offset + 3] = 255;
+          data[offset] = rgba[0];
+          data[offset + 1] = rgba[1];
+          data[offset + 2] = rgba[2];
+          data[offset + 3] = rgba[3];
         }
       }
 
@@ -214,6 +217,8 @@ const knmiPaletteFixtures = [
   { name: "dry white", rgba: [255, 255, 255, 255], intensityRank: 0, chanceSignal: 0 },
   { name: "light grey rain", rgba: [170, 170, 170, 255], intensityRank: 1, chanceSignal: 0.3 },
   { name: "dark grey rain", rgba: [85, 85, 85, 255], intensityRank: 1, chanceSignal: 0.3 },
+  { name: "green moderate rain", rgba: [80, 160, 80, 255], intensityRank: 2, chanceSignal: 0.62 },
+  { name: "yellow moderate rain", rgba: [210, 200, 80, 255], intensityRank: 2, chanceSignal: 0.62 },
   { name: "pink heavy rain", rgba: [255, 128, 128, 255], intensityRank: 3, chanceSignal: 0.92 },
   { name: "red heavy rain", rgba: [255, 0, 0, 255], intensityRank: 3, chanceSignal: 0.92 },
   { name: "near-black extreme rain", rgba: [1, 0, 0, 255], intensityRank: 3, chanceSignal: 0.92 },
@@ -312,12 +317,25 @@ for (const fixture of cityFixtures) {
   assertApproximatelyEqual(mappedPixel.y, fixture.markerPixel.y, 0.000001, `${fixture.name} y pixel`);
 
   const alignedSample = rules.getKnmiFrameRainSample(
-    createSyntheticKnmiContext(fixture.markerPixel),
+    createSyntheticKnmiContext(fixture.markerPixel, { radius: 2 }),
     width,
     height,
     fixture.location,
   );
   assert.ok(alignedSample.exactSignal > 0, `${fixture.name} rain over the marker must sample as wet`);
+  assertApproximatelyEqual(
+    alignedSample.exactSignal,
+    0.594,
+    0.000001,
+    `${fixture.name} four-pixel local grey footprint keeps its light-rain confidence`,
+  );
+  assertApproximatelyEqual(
+    alignedSample.exactIntensitySignal,
+    0.2,
+    0.000001,
+    `${fixture.name} four-pixel local grey footprint keeps light intensity`,
+  );
+  assert.equal(alignedSample.signal, alignedSample.exactSignal, `${fixture.name} visible signal is local-only`);
   assert.equal(
     alignedSample.exactIntensityRank,
     1,
@@ -332,6 +350,30 @@ for (const fixture of cityFixtures) {
   );
   assert.equal(displacedSample.exactSignal, 0, `${fixture.name} rain 15 km north must not count as exact rain`);
   assert.equal(displacedSample.nearbySignal, 0, `${fixture.name} rain 15 km north must stay outside nearby context`);
+
+  const nearbyPixel = {
+    x: Math.round(fixture.markerPixel.x) + 3,
+    y: Math.round(fixture.markerPixel.y),
+  };
+  const nearbySample = rules.getKnmiFrameRainSample(
+    createSyntheticKnmiContext(nearbyPixel, { radius: 0.1, rgba: [255, 0, 0, 255] }),
+    width,
+    height,
+    fixture.location,
+  );
+  assert.equal(nearbySample.exactSignal, 0, `${fixture.name} rain three pixels away is not local rain`);
+  assert.equal(nearbySample.signal, 0, `${fixture.name} nearby rain cannot leak into the visible local signal`);
+  assert.equal(nearbySample.exactIntensityRank, 0, `${fixture.name} nearby heavy rain cannot set local intensity`);
+  assert.ok(nearbySample.nearbySignal > 0, `${fixture.name} rain three pixels away remains available as nearby context`);
 }
+
+const heavyLocalSample = rules.getKnmiFrameRainSample(
+  createSyntheticKnmiContext(cityFixtures[0].markerPixel, { radius: 2, rgba: [255, 0, 0, 255] }),
+  width,
+  height,
+  cityFixtures[0].location,
+);
+assert.equal(heavyLocalSample.exactIntensityRank, 3, "four local red pixels retain heavy intensity");
+assertApproximatelyEqual(heavyLocalSample.exactIntensitySignal, 0.85, 0.000001, "four local red pixels retain heavy signal");
 
 console.log(`Radar projection tests passed for ${cityFixtures.length} locations.`);

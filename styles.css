@@ -584,6 +584,8 @@ h1 {
 
 .radar-panel {
   --radar-slider-thumb-size: 41px;
+  --radar-slider-label-width: 42px;
+  --radar-slider-gap: 9px;
 
   min-height: 0;
   padding: 10px;
@@ -1291,9 +1293,9 @@ h1 {
   min-height: var(--precipitation-timeline-height);
   margin-bottom: -9px;
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr);
+  grid-template-columns: var(--radar-slider-label-width) minmax(0, 1fr);
   align-items: stretch;
-  gap: 6px;
+  gap: var(--radar-slider-gap);
 }
 
 .precipitation-timeline[hidden] {
@@ -1332,7 +1334,8 @@ h1 {
   position: relative;
   min-width: 0;
   height: var(--precipitation-timeline-height);
-  overflow: hidden;
+  margin-inline: calc(var(--radar-slider-thumb-size) / 2);
+  overflow: visible;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -1373,6 +1376,23 @@ h1 {
   vector-effect: non-scaling-stroke;
 }
 
+.precipitation-timeline-selection {
+  position: absolute;
+  z-index: 2;
+  width: 8px;
+  height: 8px;
+  border: 2px solid rgb(255 255 255 / 0.94);
+  border-radius: 50%;
+  background: var(--precipitation-timeline-color);
+  box-shadow: 0 1px 3px rgb(23 32 27 / 0.35);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.precipitation-timeline-selection[hidden] {
+  display: none;
+}
+
 .precipitation-timeline.is-snow {
   --precipitation-timeline-color: #72a9c7;
 }
@@ -1382,17 +1402,17 @@ h1 {
   min-width: 0;
   min-height: 34px;
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
+  grid-template-columns: var(--radar-slider-label-width) minmax(0, 1fr);
   align-items: center;
-  gap: 9px;
+  gap: var(--radar-slider-gap);
 }
 
 .slider-timestamps {
   width: 100%;
   min-width: 0;
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
-  gap: 9px;
+  grid-template-columns: var(--radar-slider-label-width) minmax(0, 1fr);
+  gap: var(--radar-slider-gap);
   min-height: 17px;
   margin-top: -8px;
 }
@@ -2419,6 +2439,11 @@ input[type="range"]::-moz-range-thumb {
     gap: 7px;
   }
 
+  .radar-panel {
+    --radar-slider-label-width: 38px;
+    --radar-slider-gap: 7px;
+  }
+
   .topbar,
   .now-panel,
   .radar-panel,
@@ -2913,13 +2938,9 @@ input[type="range"]::-moz-range-thumb {
 
   .radar-slider {
     min-height: 43px;
-    grid-template-columns: 38px minmax(0, 1fr);
-    gap: 7px;
   }
 
   .slider-timestamps {
-    grid-template-columns: 38px minmax(0, 1fr);
-    gap: 7px;
     min-height: 15px;
     margin-top: -4px;
   }

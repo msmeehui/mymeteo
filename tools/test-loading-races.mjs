@@ -367,8 +367,20 @@ function createHarness({ analyticsEvents, hostname = "127.0.0.1", performanceNow
   vm.createContext(context);
   vm.runInContext(
     `${appSource}
+const __originalSetHybridRadarPosition = setHybridRadarPosition;
+const __originalSetKnmiFramePosition = setKnmiFramePosition;
 globalThis.__mymeteoLoadingTest = {
   beginManualLocationIntent,
+  commitCurrentRadarPosition() {
+    knmiLoadedFrameUrls = new Set(knmiFrameUrls);
+    setKnmiImageLayer = (_layer, _currentKey, frameIndex) => ({ mymeteoFrameIndex: frameIndex });
+    const sliderValue = Number(elements.radarSlider.value) || 0;
+    if (displayedRadarSource === "hybrid") {
+      __originalSetHybridRadarPosition(sliderValue);
+    } else if (displayedRadarSource === "knmi") {
+      __originalSetKnmiFramePosition(sliderValue);
+    }
+  },
   createDataLoadContext,
   createRadarFixtures(startTimeMs) {
     const frameDurationMs = 5 * 60 * 1000;
@@ -1958,10 +1970,17 @@ for (const firstFreshSource of ["knmi", "buienradar"]) {
   buienradarRun.resolve(radar.buienradar);
   await flushPromises();
   assert.deepEqual({ ...test.getRadarMapStatus() }, {
+    hidden: false,
+    isError: false,
+    message: "Updating rain forecast...",
+  }, "fresh metadata alone should not clear the updating status before its selected image is ready");
+
+  test.commitCurrentRadarPosition();
+  assert.deepEqual({ ...test.getRadarMapStatus() }, {
     hidden: true,
     isError: false,
     message: "Updating rain forecast...",
-  }, "a fully fresh retained hybrid should clear the updating status without an error");
+  }, "the fully fresh retained hybrid clears the updating status when its selected image commits");
 }
 
 {

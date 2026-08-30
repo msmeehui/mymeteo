@@ -61,7 +61,7 @@ No browser API key is required. Netherlands KNMI WMS requests are routed through
 - Location autocomplete: [Open-Meteo Geocoding API](https://open-meteo.com/en/docs/geocoding-api)
 - Current-location names: [OpenStreetMap Nominatim](https://nominatim.openstreetmap.org/)
 - Rain radar animation in the Netherlands: [KNMI](https://www.knmi.nl/) for the first 2 hours, then [Buienradar](https://www.buienradar.nl/) for longer range and fallback
-- Near-term rain chance in the Netherlands: Open-Meteo adjusted with KNMI point rain data for the first 2 hours, then Buienradar point/radar data toward the 8-hour limit
+- Near-term rain in the Netherlands: the Today card follows the displayed KNMI/Buienradar radar image when it can be read at the selected location; KNMI point rain and then Buienradar/Open-Meteo provide fallback and longer-range guidance
 - Thunderstorm icon support: Open-Meteo weather codes plus CAPE/lightning-potential signals for cautious heavy-rain storm upgrades
 - Radar frame decoding: [gifuct-js](https://github.com/matt-way/gifuct-js) through [esm.sh](https://esm.sh/)
 - Fallback radar tiles: [LibreWXR](https://librewxr.net/)
