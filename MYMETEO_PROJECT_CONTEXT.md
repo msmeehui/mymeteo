@@ -111,7 +111,7 @@ Render the base Open-Meteo forecast as soon as it arrives, then enrich the alrea
 
 For Netherlands radar, start KNMI and Buienradar together but do not make the first usable display wait for both. On a cold load, show KNMI as soon as it is ready; if Buienradar is ready first, give KNMI a short 1.5-second preference window, then show Buienradar rather than continuing to wait. Enrich to the full KNMI-plus-Buienradar hybrid when the second source arrives. The main refresh spinner should end once forecast data and a usable radar are available, while later radar enrichment continues in the background.
 
-During repeat Netherlands radar refreshes, keep the existing radar, slider, and selected absolute time usable. As each fresh source arrives, combine it with the retained counterpart so the update never shortens an existing hybrid range; stale request generations may populate caches but must not change visible UI or status. A failed refresh should retain the last usable radar with a small delayed-update status, and radar source network/body loading has a hard timeout so it cannot hold the pipeline indefinitely. A manual refresh must bypass the browser's KNMI radar-metadata and point-rain caches, while still respecting the proxy's short shared cache; show a delayed status whenever the KNMI reference run is more than 15 minutes old.
+During repeat Netherlands radar refreshes, keep the existing radar, slider, and selected absolute time usable. As each fresh source arrives, combine it with the retained counterpart so the update never shortens an existing hybrid range; stale request generations may populate caches but must not change visible UI or status. A failed refresh should retain the last usable radar with a small delayed-update status. Forecast requests and radar loading need bounded recovery, including response bodies, asynchronous radar decoding, and initial image readiness, so a stalled stage cannot keep refresh busy indefinitely. Timeouts must preserve cancellation when a new location is selected and discard late results. A manual refresh must bypass the browser's KNMI radar-metadata and point-rain caches, while still respecting the proxy's short shared cache; show a delayed status whenever the KNMI reference run is more than 15 minutes old.
 
 ### Keep The Weather Card Calm
 
@@ -154,7 +154,7 @@ For a fixed location and loaded forecast, scrubbing across the KNMI/Buienradar b
 
 If a replacement radar frame cannot load, keep the previous coherent view and return the slider to that time.
 
-Open-Meteo hourly precipitation fields describe the preceding hour, so the selected-time precipitation fallback should use the interval ending after the selected instant. Instantaneous fields such as weather code, temperature, and wind should continue to use the nearest forecast hour.
+Open-Meteo hourly precipitation fields describe the preceding hour, so the selected-time precipitation fallback should use the interval ending after the selected instant. Instantaneous fields such as weather code, temperature, and wind should continue to use the nearest forecast hour. The hourly rows in the 5-day forecast likewise describe the upcoming precipitation interval, including the final hour before midnight; fetch enough additional forecast data to cover the end of the fifth visible day. Treat provider daily dates as calendar labels using the response timezone offset, separately from hourly/current instants. Local days may contain 23 or 25 hours around clock changes, and remaining-day filtering must distinguish repeated hours by their actual timestamps.
 
 The current implementation uses blend constants in `app.js` around `knmiRadarConfig.maxLookaheadHours`, `buienradarPointRainMaxLookaheadHours`, `buienradarBlendMaxLookaheadHours`, `buienradarBlendFullWeightHours`, and related sampling settings. These can be tuned if live use shows overcorrection or undercorrection.
 
@@ -176,7 +176,7 @@ Snow and mixed precipitation labels should be treated carefully so near-even rai
 
 ### Make The 5-Day Forecast Dense But Understandable
 
-The 5-day forecast starts with today, not tomorrow. It uses summary rows for quick scanning and expandable hourly rows for detail.
+The 5-day forecast starts with today, not tomorrow. It uses summary rows for quick scanning and expandable hourly rows for detail. At mobile widths, the Today and 5 days tabs support left/right arrow navigation with focus and selection moving together, as well as pointer activation.
 
 Hourly rows should be compact, aligned, and readable on narrow mobile widths. The layout should handle short values like `0%` and longer labels like `moderate` without columns touching or creating awkward gaps.
 

@@ -344,6 +344,7 @@ function createHarness({ analyticsEvents, hostname = "127.0.0.1", performanceNow
 
   const context = {
     AbortController,
+    Blob,
     Image: ImageStub,
     ResizeObserver: undefined,
     URL,
@@ -420,6 +421,36 @@ globalThis.__mymeteoLoadingTest = {
   displayHybridRadar,
   displayKnmiRadar,
   downloadKnmiRadarMetadataResponse,
+  downloadBuienradarRadarMode,
+  fetchBuienradarRadarMode,
+  decodeBuienradarFramesWithImageDecoder,
+  decodeBuienradarFramesWithGifuct,
+  fetchBodyWithTimeout,
+  getBuienradarRequestState() {
+    return { pending: buienradarRadarRequests.size, cached: buienradarRadarCache.size };
+  },
+  setDeadlineDependencies({ decode, preload, importModule, NativeDecoder, canvas, ImageClass, BitmapCreator, revoke, createUrl } = {}) {
+    globalThis.console = { ...console, error() {}, warn() {} };
+    if (decode) decodeBuienradarFrames = decode;
+    if (preload) preloadImage = preload;
+    if (importModule) loadBuienradarGifDecoder = importModule;
+    if (NativeDecoder) {
+      window.ImageDecoder = NativeDecoder;
+      globalThis.ImageDecoder = NativeDecoder;
+    }
+    if (canvas) {
+      const createElement = document.createElement;
+      document.createElement = (name) => name === "canvas" ? canvas : createElement(name);
+    }
+    if (ImageClass) globalThis.Image = ImageClass;
+    if (BitmapCreator) {
+      window.createImageBitmap = BitmapCreator;
+      globalThis.createImageBitmap = BitmapCreator;
+    }
+    if (revoke || createUrl) {
+      globalThis.URL = { createObjectURL: createUrl || URL.createObjectURL, revokeObjectURL: revoke || URL.revokeObjectURL };
+    }
+  },
   fetchKnmiRadar,
   getLocationSearchResults() {
     return locationSearchResults;
@@ -2122,6 +2153,300 @@ for (const firstFreshSource of ["knmi", "buienradar"]) {
     0,
     "a stale radar context must not emit production timing analytics",
   );
+}
+
+
+function configureForecastDeadlineTest(test, renders = []) {
+  test.setDeadlineDependencies();
+  test.setWeatherDependencies({
+    blend() {},
+    point: async () => {},
+    knmiPoint: async () => {},
+    render: (data) => renders.push(data.id),
+    status: test.setStatusMessage,
+  });
+  test.setBlendRenderers({ fiveDay() {}, selected() {}, selectedDate: () => new Date(), timeline() {} });
+  test.setLoaders(test.loadWeather, async () => {});
+}
+
+function gifResponse() {
+  return {
+    ok: true,
+    url: "https://example.test/Animation/202609051200__radar.gif",
+    headers: { get: () => "image/gif" },
+    arrayBuffer: async () => new ArrayBuffer(0),
+  };
+}
+
+for (const phase of ["headers", "body"]) {
+  const windowTimers = createManualWindowTimers();
+  const test = createHarness({ windowTimers });
+  configureForecastDeadlineTest(test);
+  const stalled = createAbortableFetchStall({ bodyMethod: "json", phase });
+  test.setFetch(stalled.fetch);
+  const load = test.loadAll();
+  await flushPromises();
+  assert.equal(test.getControls().refreshDisabled, true);
+  assert.equal(windowTimers.runNext(), 10000);
+  await withTimeout(load, "forecast " + phase + " deadline releases loading");
+  assert.equal(stalled.signal.aborted, true);
+  assert.equal(test.getControls().refreshDisabled, false);
+  assert.equal(test.getStatus().isError, true);
+  assert.match(test.getStatus().message, /Forecast timed out/);
+  assert.equal(windowTimers.pendingCount, 0);
+}
+
+{
+  const windowTimers = createManualWindowTimers();
+  const test = createHarness({ windowTimers });
+  const renders = [];
+  const oldBody = createDeferred();
+  const latestBody = createDeferred();
+  const signals = [];
+  configureForecastDeadlineTest(test, renders);
+  test.setFetch(async (_url, { signal }) => {
+    signals.push(signal);
+    return { ok: true, json: () => signals.length === 1 ? oldBody.promise : latestBody.promise };
+  });
+  const obsoleteLoad = test.loadAll();
+  await flushPromises();
+  const latestLoad = test.loadAll();
+  await flushPromises();
+  assert.equal(signals[0].aborted, true, "deadline signal must forward caller supersession");
+  await withTimeout(obsoleteLoad, "superseded body ignoring abort still releases old load");
+  assert.equal(test.getControls().refreshDisabled, true, "obsolete completion cannot stop the current spinner");
+  assert.equal(test.getStatus().isError, false, "supersession stays silent");
+  latestBody.resolve({ id: "latest" });
+  await latestLoad;
+  oldBody.resolve({ id: "obsolete" });
+  await flushPromises();
+  assert.deepEqual(renders, ["latest"]);
+  assert.equal(test.getControls().refreshDisabled, false);
+  assert.equal(windowTimers.pendingCount, 0);
+}
+
+for (const phase of ["headers", "body"]) {
+  const windowTimers = createManualWindowTimers();
+  const test = createHarness({ windowTimers });
+  const stalled = createAbortableFetchStall({ bodyMethod: "arrayBuffer", phase });
+  test.setFetch(stalled.fetch);
+  const download = test.fetchBuienradarRadarMode("3h");
+  const rejection = assert.rejects(download, /Buienradar radar timed out/);
+  await flushPromises();
+  assert.equal(windowTimers.runNext(), 10000, "GIF transfer keeps its existing 10s deadline");
+  await rejection;
+  assert.equal(stalled.signal.aborted, true);
+  assert.deepEqual({ ...test.getBuienradarRequestState() }, { pending: 0, cached: 0 });
+  assert.equal(windowTimers.pendingCount, 0);
+}
+
+for (const phase of ["decode", "image"]) {
+  const windowTimers = createManualWindowTimers();
+  const test = createHarness({ windowTimers });
+  const stalled = createDeferred();
+  const revoked = [];
+  let decodeCalls = 0;
+  let preloadCalls = 0;
+  test.setDeadlineDependencies({
+    decode: () => {
+      decodeCalls += 1;
+      return phase === "decode" && decodeCalls === 1 ? stalled.promise : Promise.resolve(["blob:fresh"]);
+    },
+    preload: () => {
+      preloadCalls += 1;
+      return phase === "image" && preloadCalls === 1 ? stalled.promise : Promise.resolve(true);
+    },
+    revoke: (url) => revoked.push(url),
+  });
+  test.setFetch(async () => gifResponse());
+  const failed = test.fetchBuienradarRadarMode("3h");
+  const rejection = assert.rejects(failed, /Buienradar radar timed out/);
+  for (let i = 0; i < 4; i += 1) await flushPromises();
+  assert.equal(windowTimers.runNext(), 20000, "complete readiness has a 20s total deadline");
+  await rejection;
+  assert.deepEqual({ ...test.getBuienradarRequestState() }, { pending: 0, cached: 0 });
+  const retried = await test.fetchBuienradarRadarMode("3h");
+  assert.deepEqual([...retried.frameUrls], ["blob:fresh"]);
+  assert.equal(decodeCalls, 2, "a timeout must release in-flight deduplication for retry");
+  stalled.resolve(phase === "decode" ? ["blob:late"] : true);
+  for (let i = 0; i < 4; i += 1) await flushPromises();
+  assert.deepEqual(revoked, phase === "decode" ? ["blob:late"] : ["blob:fresh"]);
+  assert.equal((await test.fetchBuienradarRadarMode("3h")).frameUrls[0], "blob:fresh", "late old readiness cannot replace retry cache");
+  assert.equal(windowTimers.pendingCount, 0);
+}
+
+{
+  const windowTimers = createManualWindowTimers();
+  const test = createHarness({ windowTimers });
+  const pendingModule = createDeferred();
+  let parseCalls = 0;
+  test.setDeadlineDependencies({ importModule: () => pendingModule.promise });
+  test.setFetch(async () => gifResponse());
+  const operation = test.fetchBuienradarRadarMode("3h");
+  const rejection = assert.rejects(operation, /Buienradar radar timed out/);
+  for (let i = 0; i < 4; i += 1) await flushPromises();
+  assert.equal(windowTimers.runNext(), 20000);
+  await rejection;
+  pendingModule.resolve({ parseGIF() { parseCalls += 1; }, decompressFrames: () => [] });
+  for (let i = 0; i < 4; i += 1) await flushPromises();
+  assert.equal(parseCalls, 0, "a late fallback-module load cannot resume an abandoned GIF decode");
+  assert.deepEqual({ ...test.getBuienradarRequestState() }, { pending: 0, cached: 0 });
+}
+
+for (const phase of ["tracks", "decode", "blob"]) {
+  const windowTimers = createManualWindowTimers();
+  const test = createHarness({ windowTimers });
+  const stalled = createDeferred();
+  let decoderClosed = 0;
+  let imageClosed = 0;
+  let createdUrls = 0;
+  const revoked = [];
+  let encodedFrames = 0;
+  class NativeDecoder {
+    tracks = { ready: phase === "tracks" ? stalled.promise : Promise.resolve(), selectedTrack: { frameCount: 2 } };
+    decode() {
+      if (phase === "decode") return stalled.promise;
+      return Promise.resolve({ image: { displayWidth: 2, displayHeight: 2, close() { imageClosed += 1; } } });
+    }
+    close() { decoderClosed += 1; }
+  }
+  test.setDeadlineDependencies({
+    NativeDecoder,
+    canvas: {
+      getContext: () => ({ clearRect() {}, drawImage() {} }),
+      toBlob(callback) {
+        encodedFrames += 1;
+        if (phase === "blob" && encodedFrames === 2) {
+          stalled.promise.then(callback);
+        } else {
+          callback({});
+        }
+      },
+    },
+    createUrl: () => "blob:decoded-" + (++createdUrls),
+    revoke: (url) => revoked.push(url),
+  });
+  test.setFetch(async () => gifResponse());
+  const operation = test.fetchBuienradarRadarMode("3h");
+  const rejection = assert.rejects(operation, /Buienradar radar timed out/);
+  for (let i = 0; i < 6; i += 1) await flushPromises();
+  assert.equal(windowTimers.runNext(), 20000);
+  await rejection;
+  stalled.resolve(phase === "decode" ? { image: { close() { imageClosed += 1; } } } : {});
+  for (let i = 0; i < 6; i += 1) await flushPromises();
+  assert.equal(decoderClosed, 1, "abort closes the native decoder once during " + phase);
+  assert.equal(createdUrls, phase === "blob" ? 1 : 0, "late encoding must not create another blob URL");
+  assert.deepEqual(revoked, phase === "blob" ? ["blob:decoded-1"] : []);
+  if (phase === "decode") assert.equal(imageClosed, 1, "a late decoded VideoFrame is closed");
+}
+
+{
+  const windowTimers = createManualWindowTimers();
+  const test = createHarness({ windowTimers });
+  const images = [];
+  const revoked = [];
+  test.setDeadlineDependencies({
+    decode: async () => ["blob:pending-image"],
+    ImageClass: class { constructor() { images.push(this); } },
+    revoke: (url) => revoked.push(url),
+  });
+  test.setFetch(async () => gifResponse());
+  const operation = test.fetchBuienradarRadarMode("3h");
+  const rejection = assert.rejects(operation, /Buienradar radar timed out/);
+  for (let i = 0; i < 4; i += 1) await flushPromises();
+  assert.equal(images[0].src, "blob:pending-image");
+  assert.equal(windowTimers.runNext(), 20000);
+  await rejection;
+  assert.equal(images[0].src, "", "abandon the stalled image request");
+  assert.equal(images[0].onload, null);
+  assert.equal(images[0].onerror, null);
+  assert.deepEqual(revoked, ["blob:pending-image"]);
+}
+
+for (const retained of [false, true]) {
+  const windowTimers = createManualWindowTimers();
+  const test = createHarness({ windowTimers });
+  const stalled = createDeferred();
+  const statuses = [];
+  let fallbackCalls = 0;
+  test.setDeadlineDependencies({ decode: () => stalled.promise });
+  test.setFetch(async () => gifResponse());
+  test.setHybridRadarDependencies({ fetchKnmi: async () => { throw new Error("KNMI unavailable"); } });
+  test.setRadarDependencies({
+    disable() {},
+    libre: async () => { fallbackCalls += 1; },
+    status: (message) => statuses.push(message),
+    update() {},
+  });
+  test.setLoaders(async () => {}, test.loadRadar);
+  if (retained) test.setRadarState({ source: "hybrid", frames: [{ id: "retained" }] });
+  const operation = test.loadAll();
+  for (let i = 0; i < 5; i += 1) await flushPromises();
+  if (!retained) assert.equal(windowTimers.runNext(), 1500);
+  assert.equal(windowTimers.runNext(), 20000);
+  await withTimeout(operation, "radar readiness timeout recovers load");
+  for (let i = 0; i < 5; i += 1) await flushPromises();
+  assert.equal(test.getControls().refreshDisabled, false);
+  assert.equal(fallbackCalls, retained ? 0 : 1);
+  if (retained) {
+    assert.equal(test.getRadarState().radarFrames[0].id, "retained");
+    assert.equal(statuses.at(-1), "Radar update delayed");
+  }
+}
+
+for (const phase of ["load", "error"]) {
+  const windowTimers = createManualWindowTimers();
+  const test = createHarness({ windowTimers });
+  const images = [];
+  const revoked = [];
+  test.setDeadlineDependencies({
+    decode: async () => ["blob:first-frame"],
+    ImageClass: class { constructor() { images.push(this); } },
+    revoke: (url) => revoked.push(url),
+  });
+  test.setFetch(async () => gifResponse());
+  const operation = test.fetchBuienradarRadarMode("3h");
+  const outcome = phase === "error" ? assert.rejects(operation, /first frame did not load/) : operation;
+  for (let i = 0; i < 4; i += 1) await flushPromises();
+  images[0][phase === "error" ? "onerror" : "onload"]();
+  await outcome;
+  assert.deepEqual({ ...test.getBuienradarRequestState() }, { pending: 0, cached: phase === "load" ? 1 : 0 });
+  assert.deepEqual(revoked, phase === "load" ? [] : ["blob:first-frame"]);
+  assert.equal(windowTimers.pendingCount, 0);
+}
+
+{
+  const windowTimers = createManualWindowTimers();
+  const test = createHarness({ windowTimers });
+  const bitmap = createDeferred();
+  let closeCalls = 0;
+  test.setDeadlineDependencies({ decode: async () => [], BitmapCreator: () => bitmap.promise });
+  test.setFetch(async () => gifResponse());
+  const operation = test.fetchBuienradarRadarMode("3h");
+  const rejection = assert.rejects(operation, /Buienradar radar timed out/);
+  for (let i = 0; i < 4; i += 1) await flushPromises();
+  assert.equal(windowTimers.runNext(), 20000);
+  await rejection;
+  bitmap.resolve({ close() { closeCalls += 1; } });
+  for (let i = 0; i < 4; i += 1) await flushPromises();
+  assert.equal(closeCalls, 1, "a late static fallback ImageBitmap is closed");
+  assert.deepEqual({ ...test.getBuienradarRequestState() }, { pending: 0, cached: 0 });
+}
+
+{
+  const windowTimers = createManualWindowTimers();
+  const test = createHarness({ windowTimers });
+  const lateFailure = createDeferred();
+  test.setDeadlineDependencies({ decode: () => lateFailure.promise });
+  test.setFetch(async () => gifResponse());
+  const operation = test.fetchBuienradarRadarMode("3h");
+  const rejection = assert.rejects(operation, /Buienradar radar timed out/);
+  for (let i = 0; i < 4; i += 1) await flushPromises();
+  assert.equal(windowTimers.runNext(), 20000);
+  await rejection;
+  lateFailure.reject(new Error("Late abandoned decoder rejection"));
+  for (let i = 0; i < 4; i += 1) await flushPromises();
+  assert.deepEqual({ ...test.getBuienradarRequestState() }, { pending: 0, cached: 0 });
 }
 
 console.log("MyMeteo loading race checks passed.");

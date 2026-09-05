@@ -9,6 +9,7 @@ const DEFAULT_LOCATION = {
 const storedLocationKey = "mymeteo.location";
 const libreWxrRadarUrl = "https://api.librewxr.net/public/weather-maps.json";
 const libreWxrRadarTimeoutMs = 6000;
+const weatherForecastTimeoutMs = 10000;
 const buienradarAnimationBaseUrl = "https://image.buienradar.nl/2.0/image/animation";
 const buienradarPointRainBaseUrl = "https://gps.buienradar.nl/getrr.php";
 const knmiWmsBaseUrl = window.location.origin && window.location.origin !== "null"
@@ -42,6 +43,7 @@ const outfitScenePreloadStepDelayMs = 700;
 const outfitScenePreloadIdleTimeoutMs = 1500;
 const buienradarRadarCacheMaxAgeMs = 9 * 60 * 1000;
 const buienradarRadarTimeoutMs = 10 * 1000;
+const buienradarRadarReadyTimeoutMs = 20 * 1000;
 const buienradarPointRainCacheMaxAgeMs = 4 * 60 * 1000;
 const buienradarPointRainTimeoutMs = 3500;
 const knmiRadarCacheMaxAgeMs = 4 * 60 * 1000;
@@ -901,6 +903,20 @@ function bindEvents() {
   elements.forecastTab.addEventListener("click", () => {
     trackAnalyticsEvent("forecast_tab");
     setMobileView("forecast");
+  });
+  const weatherTabs = [elements.rainTab, elements.forecastTab];
+  weatherTabs.forEach((tab, index) => {
+    tab.addEventListener("keydown", (event) => {
+      const direction = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+      if (!direction) {
+        return;
+      }
+
+      event.preventDefault();
+      const nextTab = weatherTabs[(index + direction + weatherTabs.length) % weatherTabs.length];
+      nextTab.focus();
+      nextTab.click();
+    });
   });
   if (elements.infoButton && elements.infoDialog) {
     elements.infoButton.addEventListener("click", openInfoDialog);
@@ -2456,7 +2472,8 @@ async function loadWeather(context) {
       "rain",
       "showers",
     ].join(","),
-    forecast_days: "5",
+    // The next day supplies the interval ending after the fifth day's final hour.
+    forecast_days: "6",
     forecast_minutely_15: String(stormMinutelySampleCount),
     timezone: requestLocation.timezone,
     timeformat: "unixtime",
@@ -2464,14 +2481,16 @@ async function loadWeather(context) {
   });
 
   try {
-    const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`, {
+    const { response, body: data } = await fetchBodyWithTimeout(`https://api.open-meteo.com/v1/forecast?${params}`, {
       signal: context.signal,
+      timeoutMs: weatherForecastTimeoutMs,
+      timeoutMessage: "Forecast request timed out",
+      readBody: (nextResponse) => nextResponse.json(),
     });
     if (!response.ok) {
       throw new Error(`Open-Meteo responded with ${response.status}`);
     }
 
-    const data = await response.json();
     if (!isDataLoadContextCurrent(context)) {
       return;
     }
@@ -2483,13 +2502,15 @@ async function loadWeather(context) {
     pointRainPromise.then(renderEnrichedWeather);
     knmiPointRainPromise.then(renderEnrichedWeather);
   } catch (error) {
-    if (error?.name === "AbortError" || !isDataLoadContextCurrent(context)) {
+    if (context.signal?.aborted || error?.name === "AbortError" || !isDataLoadContextCurrent(context)) {
       return;
     }
 
     console.error(error);
     elements.nowPanel.removeAttribute("aria-busy");
-    setForecastStatusMessage(context, "Forecast unavailable", { isError: true });
+    setForecastStatusMessage(context, error?.name === "TimeoutError"
+      ? "Forecast timed out · try refreshing"
+      : "Forecast unavailable", { isError: true });
     renderFiveDayForecast();
   }
 }
@@ -2499,6 +2520,7 @@ function renderWeather(data, context) {
     return;
   }
 
+  data = normalizeForecastCalendarDates(data);
   weatherData = data;
   weatherDataLocationKey = context.locationKey;
   weatherDataLoadRequestId = context.requestId;
@@ -2515,6 +2537,24 @@ function renderWeather(data, context) {
   renderFiveDayForecast(data);
   renderSelectedWeather();
   renderPrecipitationTimeline();
+}
+
+function normalizeForecastCalendarDates(data) {
+  if (!data?.daily?.time?.length || !Number.isFinite(data.utc_offset_seconds)) {
+    return data;
+  }
+
+  // Daily epochs encode provider calendar dates with one response-wide offset.
+  // Hourly/current epochs remain real instants, including during DST changes.
+  return {
+    ...data,
+    daily: {
+      ...data.daily,
+      time: data.daily.time.map((time) => typeof time === "number"
+        ? new Date((time + data.utc_offset_seconds) * 1000).toISOString().slice(0, 10)
+        : time),
+    },
+  };
 }
 
 function renderCurrentTemperatureRange(temperatureRange) {
@@ -3359,7 +3399,7 @@ function buildSelectedTimeModelPrecipitation(hourly, date) {
   const forecastTime = date.getTime() / 1000;
   const weatherIndex = getClosestTimeIndex(hourly.time, forecastTime);
   const precipitationIndex = getPrecipitationIntervalTimeIndex(hourly.time, forecastTime);
-  if (weatherIndex < 0 || precipitationIndex < 0) {
+  if (weatherIndex < 0) {
     return undefined;
   }
 
@@ -3384,8 +3424,7 @@ function getPrecipitationIntervalTimeIndex(times, targetTime) {
     return -1;
   }
 
-  const nextIntervalIndex = times.findIndex((time) => time > targetTime);
-  return nextIntervalIndex >= 0 ? nextIntervalIndex : times.length - 1;
+  return times.findIndex((time) => time > targetTime);
 }
 
 function renderTimedCondition(condition) {
@@ -3920,9 +3959,9 @@ function renderDailyPrecipitationHeader(days) {
 }
 
 function buildCurrentDayTemperatureRange(data) {
-  const { todayKey, currentHour } = getForecastTiming(data);
+  const { todayKey, currentTime } = getForecastTiming(data);
   const hourlyTemperatures = getForecastHourEntries(data?.hourly, todayKey, {
-    currentHour,
+    currentTime,
     isToday: true,
   })
     .map(({ index }) => data.hourly.temperature_2m?.[index])
@@ -3982,9 +4021,9 @@ function buildTemperatureRange(maxTemperature, minTemperature, isRemainingToday 
 function buildCurrentDayPrecipitation(data) {
   const current = data?.current || {};
   const dailyPrecipitation = buildDailyPrecipitation(data?.daily, 0, current.temperature_2m);
-  const { todayKey, currentHour } = getForecastTiming(data);
+  const { todayKey, currentTime } = getForecastTiming(data);
   const hours = buildHourlyForecastForDay(data?.hourly, todayKey, {
-    currentHour,
+    currentTime,
     isToday: true,
   });
 
@@ -4040,7 +4079,7 @@ function getForecastTiming(data) {
 
   return {
     todayKey: formatDateKey(currentTime),
-    currentHour: getDatePart(toForecastDate(currentTime), "hour") || 0,
+    currentTime,
   };
 }
 
@@ -4052,7 +4091,7 @@ function buildFiveDayForecast(data) {
     return [];
   }
 
-  const { todayKey, currentHour } = getForecastTiming(data);
+  const { todayKey, currentTime } = getForecastTiming(data);
 
   return daily.time.slice(0, 5).map((time, index) => {
     const dailyPrecipitation = buildDailyPrecipitation(daily, index, daily.temperature_2m_max?.[index]);
@@ -4063,7 +4102,7 @@ function buildFiveDayForecast(data) {
       : buildDailyTemperatureRange(daily, index);
 
     const hours = buildHourlyForecastForDay(hourly, key, {
-      currentHour,
+      currentTime,
       isToday,
     });
     const condition = buildDailyCondition(hours, daily.weather_code?.[index]);
@@ -4604,12 +4643,12 @@ function createHourlyIconCell(condition) {
   return cell;
 }
 
-function buildHourlyForecastForDay(hourly, dayKey, { currentHour, isToday } = {}) {
+function buildHourlyForecastForDay(hourly, dayKey, { currentTime, isToday } = {}) {
   if (!hourly?.time?.length) {
     return [];
   }
 
-  return buildHourlyForecastEntries(hourly, getForecastHourEntries(hourly, dayKey, { currentHour, isToday }).slice(0, 24));
+  return buildHourlyForecastEntries(hourly, getForecastHourEntries(hourly, dayKey, { currentTime, isToday }));
 }
 
 function buildHourlyForecastEntries(hourly, entries) {
@@ -4642,14 +4681,15 @@ function buildHourlyForecastEntries(hourly, entries) {
 
 function buildHourlyPrecipitation(hourly, index, { includeIntensity = false, radarSampleMode = "hourly", radarTime } = {}) {
   const weatherCode = hourly?.weather_code?.[index];
+  const precipitationIndex = getPrecipitationIntervalTimeIndex(hourly?.time, hourly?.time?.[index]);
   const forecastTime = radarTime ?? hourly?.time?.[index];
 
   return buildPrecipitationChance({
-    chance: hourly?.precipitation_probability?.[index],
+    chance: hourly?.precipitation_probability?.[precipitationIndex],
     weatherCode,
-    rainAmount: hourly?.rain?.[index],
-    showersAmount: hourly?.showers?.[index],
-    snowfallAmount: hourly?.snowfall?.[index],
+    rainAmount: hourly?.rain?.[precipitationIndex],
+    showersAmount: hourly?.showers?.[precipitationIndex],
+    snowfallAmount: hourly?.snowfall?.[precipitationIndex],
     temperature: hourly?.temperature_2m?.[index],
     stormSignal: getStormSignalForForecastTime(forecastTime, { hourly, index }),
     forecastTime,
@@ -4660,13 +4700,14 @@ function buildHourlyPrecipitation(hourly, index, { includeIntensity = false, rad
 
 function buildHourlyModelPrecipitation(hourly, index, { includeIntensity = true } = {}) {
   const weatherCode = hourly?.weather_code?.[index];
+  const precipitationIndex = getPrecipitationIntervalTimeIndex(hourly?.time, hourly?.time?.[index]);
 
   return buildBasePrecipitationChance({
-    chance: hourly?.precipitation_probability?.[index],
+    chance: hourly?.precipitation_probability?.[precipitationIndex],
     weatherCode,
-    rainAmount: hourly?.rain?.[index],
-    showersAmount: hourly?.showers?.[index],
-    snowfallAmount: hourly?.snowfall?.[index],
+    rainAmount: hourly?.rain?.[precipitationIndex],
+    showersAmount: hourly?.showers?.[precipitationIndex],
+    snowfallAmount: hourly?.snowfall?.[precipitationIndex],
     temperature: hourly?.temperature_2m?.[index],
     stormSignal: getStormSignalForForecastTime(hourly?.time?.[index], { hourly, index }),
     includeIntensity,
@@ -4727,7 +4768,7 @@ function getMaxFiniteValue(...values) {
   return finiteValues.length ? Math.max(...finiteValues) : undefined;
 }
 
-function getForecastHourEntries(hourly, dayKey, { currentHour, isToday } = {}) {
+function getForecastHourEntries(hourly, dayKey, { currentTime, isToday } = {}) {
   if (!hourly?.time?.length) {
     return [];
   }
@@ -4735,7 +4776,8 @@ function getForecastHourEntries(hourly, dayKey, { currentHour, isToday } = {}) {
   return hourly.time
     .map((time, index) => ({ time, index }))
     .filter(({ time }) => formatDateKey(time) === dayKey)
-    .filter(({ time }) => !isToday || getDatePart(toForecastDate(time), "hour") >= currentHour);
+    // Compare instants so the first repeated autumn hour is not kept after it ends.
+    .filter(({ time }) => !isToday || time > currentTime - 60 * 60);
 }
 
 function getRemainingForecastHourEntries(hourly, date) {
@@ -4750,7 +4792,7 @@ function getRemainingForecastHourEntries(hourly, date) {
   return hourly.time
     .map((time, index) => ({ time, index }))
     .filter(({ time }) => formatDateKey(time) === dayKey)
-    .filter(({ time }) => time >= startTime - hourLookbackSeconds);
+    .filter(({ time }) => time > startTime - hourLookbackSeconds);
 }
 
 function isForecastHourDaytime(time) {
@@ -5476,58 +5518,80 @@ async function fetchBuienradarRadarMode(radarModeId, { forceRefresh = false, tim
 async function downloadBuienradarRadarMode(radarModeId, timing) {
   const radarMode = getBuienradarRadarMode(radarModeId);
   const controller = new AbortController();
-  const downloadStartedAt = getRadarTimingNow();
-  const timeout = window.setTimeout(() => controller.abort(), buienradarRadarTimeoutMs);
-  let response;
-  let buffer;
+  const timeout = window.setTimeout(() => {
+    controller.abort(new Error("Buienradar radar timed out"));
+  }, buienradarRadarReadyTimeoutMs);
+  let frameUrls = [];
+
   try {
-    response = await fetch(buildBuienradarAnimationUrl(radarMode), {
-      cache: "no-store",
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      throw new Error(`Buienradar responded with ${response.status}`);
+    const downloadStartedAt = getRadarTimingNow();
+    let response;
+    let buffer;
+    try {
+      ({ response, body: buffer } = await fetchBodyWithTimeout(buildBuienradarAnimationUrl(radarMode), {
+        cache: "no-store",
+        signal: controller.signal,
+        timeoutMs: buienradarRadarTimeoutMs,
+        readBody: (nextResponse) => nextResponse.arrayBuffer(),
+      }));
+      if (!response.ok) {
+        throw new Error(`Buienradar responded with ${response.status}`);
+      }
+    } finally {
+      markRadarTimingDuration(timing, "buienradar_download_ms", downloadStartedAt);
     }
-    buffer = await response.arrayBuffer();
+
+    const imageType = response.headers.get("content-type") || "image/gif";
+    const startDate = parseBuienradarStartDate(response.url) || roundToNextFiveMinutes(new Date());
+    const decodeStartedAt = getRadarTimingNow();
+    let timeline;
+    try {
+      timeline = parseGifTimeline(buffer);
+      frameUrls = await waitForAbortableResult(
+        decodeBuienradarFrames(buffer, imageType, { signal: controller.signal }),
+        controller.signal,
+        (urls) => urls.forEach(revokeFrameUrl),
+      );
+      if (!frameUrls.length) {
+        const stillFrameUrl = await waitForAbortableResult(
+          decodeBuienradarStillFrame(buffer, imageType, { signal: controller.signal }),
+          controller.signal,
+          (url) => { if (url) revokeFrameUrl(url); },
+        );
+        frameUrls = stillFrameUrl ? [stillFrameUrl] : [];
+      }
+
+      if (!frameUrls.length) {
+        throw new Error("Buienradar animation could not be decoded");
+      }
+    } finally {
+      markRadarTimingDuration(timing, "buienradar_decode_ms", decodeStartedAt);
+    }
+
+    const isReady = await waitForAbortableResult(
+      preloadImage(frameUrls[0], { signal: controller.signal }),
+      controller.signal,
+    );
+    if (!isReady) {
+      throw new Error("Buienradar radar first frame did not load");
+    }
+
+    return {
+      modeId: radarModeId,
+      frameUrls,
+      startDate,
+      timeline,
+      fetchedAt: Date.now(),
+    };
   } catch (error) {
+    frameUrls.forEach(revokeFrameUrl);
     if (error?.name === "AbortError") {
       throw new Error("Buienradar radar timed out");
     }
     throw error;
   } finally {
-    markRadarTimingDuration(timing, "buienradar_download_ms", downloadStartedAt);
     window.clearTimeout(timeout);
   }
-
-  const imageType = response.headers.get("content-type") || "image/gif";
-  const startDate = parseBuienradarStartDate(response.url) || roundToNextFiveMinutes(new Date());
-  const decodeStartedAt = getRadarTimingNow();
-  let frameUrls;
-  let timeline;
-  try {
-    timeline = parseGifTimeline(buffer);
-    frameUrls = await decodeBuienradarFrames(buffer, imageType);
-    if (!frameUrls.length) {
-      const stillFrameUrl = await decodeBuienradarStillFrame(buffer, imageType);
-      frameUrls = stillFrameUrl ? [stillFrameUrl] : [];
-    }
-
-    if (!frameUrls.length) {
-      throw new Error("Buienradar animation could not be decoded");
-    }
-  } finally {
-    markRadarTimingDuration(timing, "buienradar_decode_ms", decodeStartedAt);
-  }
-
-  await preloadImage(frameUrls[0]);
-
-  return {
-    modeId: radarModeId,
-    frameUrls,
-    startDate,
-    timeline,
-    fetchedAt: Date.now(),
-  };
 }
 
 async function loadKnmiRadar(context) {
@@ -5716,23 +5780,81 @@ function isFreshKnmiRadarMetadata(metadata) {
   );
 }
 
-async function fetchBodyWithTimeout(url, { readBody, timeoutMs, ...options } = {}) {
+// Module imports and browser decoders may finish after cancellation. Discard their
+// late results and release resources instead of resuming an abandoned radar load.
+function waitForAbortableResult(promise, signal, disposeLateResult) {
+  if (!signal) {
+    return Promise.resolve(promise);
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const onAbort = () => {
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      reject(signal.reason || Object.assign(new Error("Request aborted"), { name: "AbortError" }));
+    };
+    if (signal.aborted) {
+      onAbort();
+    } else {
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+
+    Promise.resolve(promise).then((value) => {
+      if (settled) {
+        disposeLateResult?.(value);
+        return;
+      }
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      resolve(value);
+    }, (error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      reject(error);
+    });
+  });
+}
+
+async function fetchBodyWithTimeout(url, { readBody, timeoutMs, timeoutMessage, signal, ...options } = {}) {
   const hasTimeout = Number.isFinite(timeoutMs) && timeoutMs > 0;
   const controller = hasTimeout ? new AbortController() : undefined;
+  const forwardAbort = () => controller?.abort(signal.reason);
+  let didTimeOut = false;
+  if (controller && signal) {
+    if (signal.aborted) {
+      forwardAbort();
+    } else {
+      signal.addEventListener("abort", forwardAbort, { once: true });
+    }
+  }
   const timeout = controller
-    ? window.setTimeout(() => controller.abort(), timeoutMs)
+    ? window.setTimeout(() => {
+      didTimeOut = true;
+      controller.abort();
+    }, timeoutMs)
     : undefined;
+  const requestSignal = controller?.signal || signal;
 
   try {
-    const response = await fetch(url, {
+    const response = await waitForAbortableResult(fetch(url, {
       ...options,
-      ...(controller ? { signal: controller.signal } : {}),
-    });
+      ...(requestSignal ? { signal: requestSignal } : {}),
+    }), requestSignal);
     const body = response.ok && typeof readBody === "function"
-      ? await readBody(response)
+      ? await waitForAbortableResult(readBody(response), requestSignal)
       : undefined;
     return { response, body };
+  } catch (error) {
+    if (didTimeOut && timeoutMessage && !signal?.aborted) {
+      throw Object.assign(new Error(timeoutMessage), { name: "TimeoutError" });
+    }
+    throw error;
   } finally {
+    signal?.removeEventListener("abort", forwardAbort);
     if (timeout !== undefined) {
       window.clearTimeout(timeout);
     }
@@ -9015,26 +9137,37 @@ function parseGifTimeline(buffer) {
   };
 }
 
-async function decodeBuienradarFrames(buffer, type) {
-  const imageDecoderFrames = await decodeBuienradarFramesWithImageDecoder(buffer, type);
+async function decodeBuienradarFrames(buffer, type, { signal } = {}) {
+  const imageDecoderFrames = await decodeBuienradarFramesWithImageDecoder(buffer, type, { signal });
   if (imageDecoderFrames.length > 1) {
     return imageDecoderFrames;
   }
 
   imageDecoderFrames.forEach(revokeFrameUrl);
-  return decodeBuienradarFramesWithGifuct(buffer);
+  return decodeBuienradarFramesWithGifuct(buffer, { signal });
 }
 
-async function decodeBuienradarFramesWithImageDecoder(buffer, type) {
+async function decodeBuienradarFramesWithImageDecoder(buffer, type, { signal } = {}) {
   if (!("ImageDecoder" in window)) {
     return [];
   }
 
   let decoder;
   const frameUrls = [];
+  let decoderClosed = false;
+  const closeDecoder = () => {
+    if (decoder && !decoderClosed) {
+      decoderClosed = true;
+      decoder.close?.();
+    }
+  };
   try {
+    if (signal?.aborted) {
+      throw signal.reason;
+    }
     decoder = new ImageDecoder({ data: buffer.slice(0), type });
-    await decoder.tracks.ready;
+    signal?.addEventListener("abort", closeDecoder, { once: true });
+    await waitForAbortableResult(decoder.tracks.ready, signal);
 
     const frameCount = decoder.tracks.selectedTrack?.frameCount || 0;
     if (frameCount < 2 || frameCount > 80) {
@@ -9048,16 +9181,18 @@ async function decodeBuienradarFramesWithImageDecoder(buffer, type) {
     }
 
     for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
-      const { image } = await decoder.decode({ frameIndex });
+      const { image } = await waitForAbortableResult(
+        decoder.decode({ frameIndex }), signal, (result) => result.image.close(),
+      );
       canvas.width = image.displayWidth;
       canvas.height = image.displayHeight;
       context.clearRect(0, 0, canvas.width, canvas.height);
       context.drawImage(image, 0, 0);
       image.close();
 
-      const frameBlob = await new Promise((resolve) => {
+      const frameBlob = await waitForAbortableResult(new Promise((resolve) => {
         canvas.toBlob(resolve, "image/png");
-      });
+      }), signal);
       if (frameBlob) {
         frameUrls.push(URL.createObjectURL(frameBlob));
       }
@@ -9066,18 +9201,26 @@ async function decodeBuienradarFramesWithImageDecoder(buffer, type) {
     return frameUrls;
   } catch (error) {
     frameUrls.forEach(revokeFrameUrl);
+    if (signal?.aborted) {
+      throw signal.reason;
+    }
     console.warn("Could not decode Buienradar animation frames.", error);
     return [];
   } finally {
-    decoder?.close?.();
+    signal?.removeEventListener("abort", closeDecoder);
+    closeDecoder();
   }
 }
 
-async function decodeBuienradarFramesWithGifuct(buffer) {
+function loadBuienradarGifDecoder() {
+  return import(gifDecoderModuleUrl);
+}
+
+async function decodeBuienradarFramesWithGifuct(buffer, { signal } = {}) {
   const frameUrls = [];
 
   try {
-    const { parseGIF, decompressFrames } = await import(gifDecoderModuleUrl);
+    const { parseGIF, decompressFrames } = await waitForAbortableResult(loadBuienradarGifDecoder(), signal);
     const gif = parseGIF(buffer.slice(0));
     const frames = decompressFrames(gif, true);
     if (frames.length < 2 || frames.length > 80) {
@@ -9117,6 +9260,9 @@ async function decodeBuienradarFramesWithGifuct(buffer) {
     return frameUrls;
   } catch (error) {
     frameUrls.forEach(revokeFrameUrl);
+    if (signal?.aborted) {
+      throw signal.reason;
+    }
     console.warn("Could not decode Buienradar frames with GIF fallback.", error);
     return [];
   }
@@ -9128,31 +9274,31 @@ function revokeFrameUrl(url) {
   }
 }
 
-function preloadImage(url, { timeoutMs } = {}) {
-  if (!url) {
-    return Promise.resolve();
+function preloadImage(url, { signal } = {}) {
+  if (!url || signal?.aborted) {
+    return Promise.resolve(false);
   }
 
   return new Promise((resolve) => {
     const image = new Image();
-    let isResolved = false;
-    let timeout;
-    const finish = () => {
-      if (isResolved) {
+    let settled = false;
+    const finish = (isLoaded) => {
+      if (settled) {
         return;
       }
-
-      isResolved = true;
-      if (timeout) {
-        window.clearTimeout(timeout);
-      }
-      resolve();
+      settled = true;
+      image.onload = null;
+      image.onerror = null;
+      signal?.removeEventListener("abort", onAbort);
+      resolve(isLoaded);
     };
-    image.onload = finish;
-    image.onerror = finish;
-    if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
-      timeout = window.setTimeout(finish, timeoutMs);
-    }
+    const onAbort = () => {
+      finish(false);
+      image.src = "";
+    };
+    image.onload = () => finish(true);
+    image.onerror = () => finish(false);
+    signal?.addEventListener("abort", onAbort, { once: true });
     image.src = url;
   });
 }
@@ -9212,13 +9358,15 @@ function queueKnmiFramePreload(frameUrls) {
   });
 }
 
-async function decodeBuienradarStillFrame(buffer, type) {
+async function decodeBuienradarStillFrame(buffer, type, { signal } = {}) {
   if (!("createImageBitmap" in window)) {
     return undefined;
   }
 
   try {
-    const image = await createImageBitmap(new Blob([buffer.slice(0)], { type }));
+    const image = await waitForAbortableResult(
+      createImageBitmap(new Blob([buffer.slice(0)], { type })), signal, (bitmap) => bitmap.close(),
+    );
     const canvas = document.createElement("canvas");
     const context = canvas.getContext("2d");
     if (!context) {
@@ -9232,12 +9380,15 @@ async function decodeBuienradarStillFrame(buffer, type) {
     context.drawImage(image, 0, 0);
     image.close();
 
-    const frameBlob = await new Promise((resolve) => {
+    const frameBlob = await waitForAbortableResult(new Promise((resolve) => {
       canvas.toBlob(resolve, "image/png");
-    });
+    }), signal);
 
     return frameBlob ? URL.createObjectURL(frameBlob) : undefined;
   } catch (error) {
+    if (signal?.aborted) {
+      throw signal.reason;
+    }
     console.warn("Could not decode a static Buienradar frame.", error);
     return undefined;
   }
@@ -9926,6 +10077,13 @@ function getMedian(values) {
 }
 
 function formatWeekday(value, weekday = "short") {
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return new Intl.DateTimeFormat("en-US", {
+      weekday,
+      timeZone: "UTC",
+    }).format(new Date(`${value}T12:00:00Z`));
+  }
+
   const date = toForecastDate(value);
 
   try {

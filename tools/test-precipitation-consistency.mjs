@@ -685,9 +685,10 @@ function getKnmiImagePointResult(rules, {
   rules.reset();
   rules.setWeatherData({
     hourly: hourlyFixture({
-      chances: [modelChance],
-      codes: [modelCode],
-      rainAmounts: [modelRain],
+      // Include the interval ending after the selected instant.
+      chances: [modelChance, modelChance],
+      codes: [modelCode, modelCode],
+      rainAmounts: [modelRain, modelRain],
       startTimeMs: selectedTimeMs,
     }),
   });
