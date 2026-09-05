@@ -1,12 +1,14 @@
 {
   "scripts": {
-    "test": "npm run test:outfits && npm run test:loading && npm run test:precipitation && npm run test:radar-projection && npm run test:radar-time && npm run test:forecast",
+    "test": "npm run test:outfits && npm run test:loading && npm run test:precipitation && npm run test:radar-projection && npm run test:radar-time && npm run test:forecast && npm run test:map-fallback && npm run test:radar-sync",
     "test:loading": "node tools/test-loading-races.mjs",
     "test:outfits": "node tools/test-outfit-states.mjs",
     "test:precipitation": "node tools/test-precipitation-consistency.mjs",
     "test:radar-projection": "node tools/test-radar-projection.mjs",
     "test:radar-time": "node tools/test-radar-time-state.mjs",
-    "test:forecast": "node tools/test-forecast-boundaries.mjs"
+    "test:forecast": "node tools/test-forecast-boundaries.mjs",
+    "test:map-fallback": "node tools/test-map-fallback.mjs",
+    "test:radar-sync": "node tools/test-buienradar-sync.mjs"
   },
   "devDependencies": {
     "playwright": "^1.60.0"

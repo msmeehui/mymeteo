@@ -191,7 +191,7 @@ assert.equal(args.model.weatherCode, 71);
 assert.equal(args.model.temperature, -2);
 assert.equal(args.model.stormSignal.cape, 100);
 assert.equal(args.model.stormSignal.hasThunderstormCode, false);
-assert.deepEqual(plain(args.radar), { time: radarTime, radarSampleMode: "hourly" });
+assert.deepEqual(plain(args.radar), { time: radarTime, radarSampleMode: "hourly", allowImageFallback: true });
 const snapshot = rules.getHourlyWeatherSnapshot(fields.hourly.time[fieldIndex]);
 assert.deepEqual(plain({ temperature: snapshot.temperature, wind: snapshot.windSpeed, direction: snapshot.windDirection, day: snapshot.isDaytime, code: snapshot.weatherCode }),
   { temperature: -2, wind: 15, direction: 45, day: false, code: 71 });

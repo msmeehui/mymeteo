@@ -105,6 +105,8 @@ The Today weather card also has a hidden Easter egg: clicking or tapping the lar
 
 The weather card should not wait for slower radar graphics if forecast/current weather data is already available. The card should show its main contents early, while radar-loading status belongs in the map/status area. This keeps the first load from feeling unnecessarily blocked.
 
+If the map library fails to load or initialize, keep the weather forecast, location search, current-location control, refresh, and outfit view usable. Show a compact `Map unavailable` status and disable the radar slider, without repeatedly downloading radar imagery that cannot be displayed.
+
 Location search and the current-location control should remain usable while weather or radar data is loading. A new location choice supersedes older in-flight work, and stale responses must not change the visible location, forecast, radar, status, or loading state. Only the current-location control itself is temporarily unavailable while the browser is actively determining the position.
 
 Render the base Open-Meteo forecast as soon as it arrives, then enrich the already-visible forecast when KNMI/Buienradar point and image rain signals become available. When changing location, use the existing stable weather-card shell as a short updating state rather than showing the previous location's weather under the new location name. Reuse fresh regional radar frames when they remain valid for the newly selected location.
