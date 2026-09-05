@@ -69,6 +69,22 @@ No browser API key is required. Netherlands KNMI WMS requests are routed through
 - Privacy-friendly usage statistics: [Simple Analytics](https://www.simpleanalytics.com/)
 - Weather icons: custom MyMeteo SVG icons in `assets/weather-icons-mymeteo/`
 
+## Server Cache And Tests
+
+The KNMI proxy keeps complete cached responses in hourly folders under `v2/` inside the existing private cache directory. Fresh responses are reused for 4 minutes (5 minutes for capabilities); connection or upstream failures may use a response no older than 30 minutes. Cache storage failures do not prevent a valid upstream response from reaching the app.
+
+Cleanup runs in short, rate-limited passes during normal requests. It preserves every response still eligible for fallback and removes wholly expired hourly folders plus obsolete legacy `.body`/`.json` cache files. The first request after upgrading fetches a new response because the old two-file format is no longer read. No configuration change or cron job is needed.
+
+Run the browser-logic regressions with `npm test`. For the server cache and HTTP failure/concurrency checks, install PHP CLI with cURL and run:
+
+```sh
+npm run test:proxy
+```
+
+If PHP is not on `PATH`, set `MYMETEO_PHP_BINARY` to its executable path. These checks use temporary directories, a synthetic key and a local fake KNMI service; they never use the real server configuration or contact KNMI.
+
+For a proxy-only update, upload `api/knmi-wms.php` to the same server path. Keep the private configuration and cache directory in place.
+
 ## Notes
 
 - Current-location mode auto-refreshes on open when browser geolocation permission is already granted.

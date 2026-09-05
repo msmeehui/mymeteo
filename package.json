@@ -8,7 +8,8 @@
     "test:radar-time": "node tools/test-radar-time-state.mjs",
     "test:forecast": "node tools/test-forecast-boundaries.mjs",
     "test:map-fallback": "node tools/test-map-fallback.mjs",
-    "test:radar-sync": "node tools/test-buienradar-sync.mjs"
+    "test:radar-sync": "node tools/test-buienradar-sync.mjs",
+    "test:proxy": "node tools/test-knmi-proxy.mjs"
   },
   "devDependencies": {
     "playwright": "^1.60.0"

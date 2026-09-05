@@ -38,6 +38,8 @@ Keeping the site static, no-key-in-browser, and operationally simple has been an
 
 The KNMI rain-source rollout is the first intentional exception to the no-backend constraint. Netherlands KNMI WMS requests use a small Cloud86/PHP proxy at `api/knmi-wms.php`, with the real API key kept outside `httpdocs` in a private config file. The main MyMeteo UI should still behave like a static app, keep Buienradar/Open-Meteo fallbacks, and avoid exposing KNMI debug details outside hidden comparison/debug surfaces.
 
+The proxy cache is best-effort: storage failures must not hide a valid KNMI response. If KNMI temporarily fails, reuse a cached response only while its original fetch time remains within the 30-minute fallback limit, including time spent waiting for the failed request. Publish each cached response as one complete record, and clean up obsolete cache files in short, bounded passes during normal traffic. Keep this within the existing private cache directory, without adding a scheduled server task.
+
 Core files:
 
 - `index.html`: app shell, About modal, source notes, changelog, cache-busted asset links

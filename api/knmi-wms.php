@@ -8,6 +8,8 @@ const MYMETEO_KNMI_STYLE = 'radar/nearest';
 const MYMETEO_DEFAULT_CACHE_TTL_SECONDS = 240;
 const MYMETEO_CAPABILITIES_CACHE_TTL_SECONDS = 300;
 const MYMETEO_STALE_CACHE_TTL_SECONDS = 1800;
+const MYMETEO_CACHE_BUCKET_SECONDS = 3600;
+const MYMETEO_CACHE_CLEANUP_INTERVAL_SECONDS = 60;
 const MYMETEO_WEB_MERCATOR_MIN_EASTING = -55659.7454;
 const MYMETEO_WEB_MERCATOR_MAX_EASTING = 1335833.8896;
 const MYMETEO_WEB_MERCATOR_MIN_NORTHING = 6106854.8348;
@@ -29,6 +31,7 @@ try {
     $cacheDir = mymeteo_get_cache_dir($config);
     $cacheTtl = mymeteo_cache_ttl_for_request($wmsRequest['request']);
     $cachePaths = mymeteo_cache_paths($cacheDir, $wmsRequest['cache_key']);
+    mymeteo_cleanup_cache($cacheDir);
     $cachedResponse = mymeteo_read_cached_response($cachePaths, $cacheTtl);
 
     if ($cachedResponse !== null) {
@@ -36,12 +39,23 @@ try {
     }
 
     $staleResponse = mymeteo_read_cached_response($cachePaths, MYMETEO_STALE_CACHE_TTL_SECONDS, true);
-    $upstreamResponse = mymeteo_fetch_upstream($wmsRequest['url'], $apiKey, $wmsRequest['accept']);
+    try {
+        $upstreamResponse = mymeteo_fetch_upstream($wmsRequest['url'], $apiKey, $wmsRequest['accept']);
+    } catch (RuntimeException $error) {
+        // Check age again after the request: a slow failure must not extend stale retention.
+        $staleResponse = mymeteo_read_cached_response($cachePaths, MYMETEO_STALE_CACHE_TTL_SECONDS, true);
+        if ($staleResponse !== null) {
+            mymeteo_send_response($staleResponse, 'stale');
+        }
+
+        throw $error;
+    }
 
     if ($upstreamResponse['status'] >= 200 && $upstreamResponse['status'] < 300) {
         try {
             mymeteo_validate_upstream_content($wmsRequest['request'], $upstreamResponse);
         } catch (RuntimeException $error) {
+            $staleResponse = mymeteo_read_cached_response($cachePaths, MYMETEO_STALE_CACHE_TTL_SECONDS, true);
             if ($staleResponse !== null) {
                 mymeteo_send_response($staleResponse, 'stale');
             }
@@ -53,6 +67,7 @@ try {
         mymeteo_send_response($upstreamResponse, $staleResponse === null ? 'miss' : 'refresh');
     }
 
+    $staleResponse = mymeteo_read_cached_response($cachePaths, MYMETEO_STALE_CACHE_TTL_SECONDS, true);
     if ($staleResponse !== null) {
         mymeteo_send_response($staleResponse, 'stale');
     }
@@ -117,12 +132,9 @@ function mymeteo_get_cache_dir(array $config): string
         $cacheDir = $configDir . '/knmi-cache';
     }
 
-    if (!is_dir($cacheDir) && !mkdir($cacheDir, 0750, true) && !is_dir($cacheDir)) {
-        throw new RuntimeException('Could not create KNMI cache directory');
-    }
-
-    if (!is_writable($cacheDir)) {
-        throw new RuntimeException('KNMI cache directory is not writable');
+    // Caching is optional: an unavailable directory must not block a valid KNMI response.
+    if (!is_dir($cacheDir)) {
+        @mkdir($cacheDir, 0750, true);
     }
 
     return $cacheDir;
@@ -439,52 +451,234 @@ function mymeteo_cache_ttl_for_request(string $request): int
 
 function mymeteo_cache_paths(string $cacheDir, string $cacheKey): array
 {
-    return [
-        'body' => $cacheDir . '/' . $cacheKey . '.body',
-        'meta' => $cacheDir . '/' . $cacheKey . '.json',
-    ];
+    return ['dir' => $cacheDir, 'key' => $cacheKey];
 }
 
-function mymeteo_read_cached_response(array $cachePaths, int $ttl, bool $allowStale = false): ?array
+function mymeteo_read_cached_response(array $cachePaths, int $ttl, bool $allowStale = false, ?int $now = null): ?array
 {
-    if (!is_file($cachePaths['meta']) || !is_file($cachePaths['body'])) {
-        return null;
+    $now = $now ?? time();
+    $bucket = intdiv($now, MYMETEO_CACHE_BUCKET_SECONDS) * MYMETEO_CACHE_BUCKET_SECONDS;
+
+    // The maximum stale age is shorter than one bucket. Never read the old two-file format.
+    foreach ([$bucket, $bucket - MYMETEO_CACHE_BUCKET_SECONDS] as $candidate) {
+        $directory = $cachePaths['dir'] . '/v2/' . $candidate;
+        $path = $directory . '/' . $cachePaths['key'] . '.cache';
+        if (is_link($cachePaths['dir'] . '/v2') || is_link($directory) || is_link($path)) {
+            continue;
+        }
+        $file = @fopen($path, 'rb');
+        if ($file === false) {
+            continue;
+        }
+
+        try {
+            // One open file keeps metadata and body together even during rename or cleanup.
+            $header = @fgets($file, 4096);
+            $meta = is_string($header) ? json_decode($header, true) : null;
+            if (
+                !is_string($header) || substr($header, -1) !== "\n"
+                || !is_array($meta)
+                || ($meta['version'] ?? null) !== 2
+                || !isset($meta['fetched_at'], $meta['status'], $meta['content_type'], $meta['body_length'])
+                || !is_int($meta['fetched_at'])
+                || !is_int($meta['status'])
+                || $meta['status'] < 200 || $meta['status'] >= 300
+                || !is_string($meta['content_type'])
+                || !is_int($meta['body_length']) || $meta['body_length'] < 0
+            ) {
+                continue;
+            }
+
+            $age = $now - $meta['fetched_at'];
+            if ($age < 0 || $age > min($ttl, MYMETEO_STALE_CACHE_TTL_SECONDS)) {
+                continue;
+            }
+
+            $body = @stream_get_contents($file);
+            if ($body === false || strlen($body) !== $meta['body_length']) {
+                continue;
+            }
+
+            return [
+                'status' => $meta['status'],
+                'content_type' => $meta['content_type'],
+                'body' => $body,
+                'fetched_at' => $meta['fetched_at'],
+                'cache_age' => $age,
+                'cache_mode' => $allowStale ? 'stale' : 'fresh',
+            ];
+        } finally {
+            fclose($file);
+        }
     }
 
-    $meta = json_decode((string) file_get_contents($cachePaths['meta']), true);
-    if (!is_array($meta) || !isset($meta['fetched_at'], $meta['status'], $meta['content_type'])) {
-        return null;
-    }
-
-    $age = time() - (int) $meta['fetched_at'];
-    if ($age > $ttl) {
-        return null;
-    }
-
-    $body = file_get_contents($cachePaths['body']);
-    if ($body === false) {
-        return null;
-    }
-
-    return [
-        'status' => (int) $meta['status'],
-        'content_type' => (string) $meta['content_type'],
-        'body' => $body,
-        'cache_age' => $age,
-        'cache_mode' => $allowStale ? 'stale' : 'fresh',
-    ];
+    return null;
 }
 
-function mymeteo_write_cached_response(array $cachePaths, array $response): void
+function mymeteo_write_cached_response(array $cachePaths, array $response, ?int $now = null): bool
 {
-    $meta = [
-        'fetched_at' => time(),
+    $now = $now ?? time();
+    $meta = json_encode([
+        'version' => 2,
+        'fetched_at' => $now,
         'status' => $response['status'],
         'content_type' => $response['content_type'],
-    ];
+        'body_length' => strlen($response['body']),
+    ]);
+    if ($meta === false) {
+        return false;
+    }
 
-    file_put_contents($cachePaths['body'], $response['body'], LOCK_EX);
-    file_put_contents($cachePaths['meta'], json_encode($meta), LOCK_EX);
+    // A stable lock coordinates publication and cleanup; readers need no lock.
+    $lockPath = $cachePaths['dir'] . '/.mymeteo-cache.lock';
+    $lock = !is_link($lockPath) ? @fopen($lockPath, 'c+b') : false;
+    if ($lock === false) {
+        return false;
+    }
+
+    $temporaryPath = null;
+    try {
+        if (!@flock($lock, LOCK_EX | LOCK_NB)) {
+            return false;
+        }
+
+        $bucket = intdiv($now, MYMETEO_CACHE_BUCKET_SECONDS) * MYMETEO_CACHE_BUCKET_SECONDS;
+        $directory = $cachePaths['dir'] . '/v2/' . $bucket;
+        if (is_link($cachePaths['dir'] . '/v2') || is_link($directory)) {
+            return false;
+        }
+        if (!is_dir($directory) && !@mkdir($directory, 0750, true) && !is_dir($directory)) {
+            return false;
+        }
+
+        $temporaryPath = @tempnam($directory, 'mymeteo-');
+        if ($temporaryPath === false) {
+            $temporaryPath = null;
+            return false;
+        }
+        if (realpath(dirname($temporaryPath)) !== realpath($directory)) {
+            return false;
+        }
+
+        $entry = $meta . "\n" . $response['body'];
+        if (@file_put_contents($temporaryPath, $entry) !== strlen($entry)) {
+            return false;
+        }
+
+        $path = $directory . '/' . $cachePaths['key'] . '.cache';
+        if (!@rename($temporaryPath, $path)) {
+            return false;
+        }
+
+        $temporaryPath = null;
+        return true;
+    } finally {
+        if ($temporaryPath !== null) {
+            @unlink($temporaryPath);
+        }
+        @flock($lock, LOCK_UN);
+        fclose($lock);
+    }
+}
+
+function mymeteo_cleanup_cache(string $cacheDir, ?int $now = null, int $maxFiles = 200, float $maxSeconds = 0.025): void
+{
+    if ($maxFiles <= 0 || $maxSeconds <= 0) {
+        return;
+    }
+
+    $now = $now ?? time();
+    $lockPath = $cacheDir . '/.mymeteo-cache.lock';
+    $lock = !is_link($lockPath) ? @fopen($lockPath, 'c+b') : false;
+    if ($lock === false) {
+        return;
+    }
+
+    try {
+        if (!@flock($lock, LOCK_EX | LOCK_NB)) {
+            return;
+        }
+
+        $lastCleanup = (int) @stream_get_contents($lock);
+        if ($lastCleanup > 0 && $now >= $lastCleanup && $now - $lastCleanup < MYMETEO_CACHE_CLEANUP_INTERVAL_SECONDS) {
+            return;
+        }
+        @rewind($lock);
+        if (!@ftruncate($lock, 0) || @fwrite($lock, (string) $now) !== strlen((string) $now)) {
+            return;
+        }
+        @fflush($lock);
+
+        $started = microtime(true);
+        $deadline = $started + $maxSeconds;
+        $newEntriesDeadline = $started + $maxSeconds / 2;
+        $cutoff = $now - MYMETEO_STALE_CACHE_TTL_SECONDS;
+        $remaining = $maxFiles;
+        $versionDirectory = $cacheDir . '/v2';
+        $buckets = !is_link($versionDirectory) ? @opendir($versionDirectory) : false;
+        if ($buckets !== false) {
+            try {
+                // Reserve half the work for retiring legacy files while that backlog exists.
+                $newEntriesBudget = max(1, intdiv($remaining, 2));
+                while ($newEntriesBudget > 0 && microtime(true) < $newEntriesDeadline && ($name = readdir($buckets)) !== false) {
+                    if (!preg_match('/^[0-9]{1,12}$/D', $name) || (int) $name + MYMETEO_CACHE_BUCKET_SECONDS > $cutoff) {
+                        continue;
+                    }
+                    $directory = $versionDirectory . '/' . $name;
+                    if (is_link($directory) || !is_dir($directory)) {
+                        continue;
+                    }
+                    $before = $newEntriesBudget;
+                    mymeteo_prune_cache_files($directory, $cutoff, $newEntriesBudget, $newEntriesDeadline, false);
+                    $remaining -= $before - $newEntriesBudget;
+                    @rmdir($directory); // Only succeeds when every recognized/unknown file is gone.
+                }
+            } finally {
+                closedir($buckets);
+            }
+        }
+
+        mymeteo_prune_cache_files($cacheDir, $cutoff, $remaining, $deadline, true);
+    } finally {
+        @flock($lock, LOCK_UN);
+        fclose($lock);
+    }
+}
+
+function mymeteo_prune_cache_files(string $directory, int $cutoff, int &$remaining, float $deadline, bool $legacy): void
+{
+    $files = @opendir($directory);
+    if ($files === false) {
+        return;
+    }
+
+    try {
+        while ($remaining > 0 && microtime(true) < $deadline && ($name = readdir($files)) !== false) {
+            $recognized = $legacy
+                ? preg_match('/^[a-f0-9]{64}\.(body|json)$/D', $name)
+                : preg_match('/^([a-f0-9]{64}\.cache|mymeteo-[a-zA-Z0-9]+)$/D', $name);
+            if (!$recognized) {
+                continue;
+            }
+
+            $path = $directory . '/' . $name;
+            clearstatcache(true, $path);
+            if (is_link($path) || !is_file($path)) {
+                continue;
+            }
+            if ($legacy) {
+                $modifiedAt = @filemtime($path);
+                if ($modifiedAt === false || $modifiedAt >= $cutoff) {
+                    continue;
+                }
+            }
+
+            $remaining--;
+            @unlink($path);
+        }
+    } finally {
+        closedir($files);
+    }
 }
 
 function mymeteo_fetch_upstream(string $url, string $apiKey, string $accept): array
