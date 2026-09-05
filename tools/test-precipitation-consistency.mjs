@@ -173,10 +173,25 @@ const __originalActiveRainSourceAdjustment = getActiveRainSourceAdjustmentForFor
 const __originalTimelineRadarAdjustment = getPrecipitationTimelineRadarAdjustment;
 const __originalPreloadKnmiFrameImage = preloadKnmiFrameImage;
 const __originalSetKnmiImageLayer = setKnmiImageLayer;
+const __originalSetBuienradarImageLayer = setBuienradarImageLayer;
+const __originalMap = map;
+const __originalSelectedLocation = selectedLocation;
 const __originalSampleKnmiRainFrame = sampleKnmiRainFrame;
 const __originalRenderPrecipitationTimeline = renderPrecipitationTimeline;
 const __originalRevokeFrameUrl = revokeFrameUrl;
 let __recordedFrameUrlRevocations = [];
+function __makeHybridImageSamples(signals, startTimeMs) {
+  return signals.map((signal, index) => ({
+    chance: signal > 0 ? 80 : 0,
+    signal,
+    intensitySignal: signal,
+    intensityRank: signal > 0 ? 1 : 0,
+    exactSignal: signal,
+    exactIntensitySignal: signal,
+    exactIntensityRank: signal > 0 ? 1 : 0,
+    time: startTimeMs + index * 5 * 60 * 1000,
+  }));
+}
 globalThis.__mymeteoPrecipitationTest = {
   buildBasePrecipitationChance,
   buildRadarImageTimelinePrecipitation,
@@ -208,6 +223,9 @@ globalThis.__mymeteoPrecipitationTest = {
     getPrecipitationTimelineRadarAdjustment = __originalTimelineRadarAdjustment;
     preloadKnmiFrameImage = __originalPreloadKnmiFrameImage;
     setKnmiImageLayer = __originalSetKnmiImageLayer;
+    setBuienradarImageLayer = __originalSetBuienradarImageLayer;
+    map = __originalMap;
+    selectedLocation = __originalSelectedLocation;
     sampleKnmiRainFrame = __originalSampleKnmiRainFrame;
     renderPrecipitationTimeline = __originalRenderPrecipitationTimeline;
     revokeFrameUrl = __originalRevokeFrameUrl;
@@ -283,6 +301,87 @@ globalThis.__mymeteoPrecipitationTest = {
       });
     });
   },
+  configureHybridRadar({ startTimeMs, knmiSignals, buienradarSignals }) {
+    const locationKey = getBuienradarSampleLocationKey(selectedLocation);
+    weatherDataLocationKey = locationKey;
+    weatherDataLoadRequestId = dataLoadRequestId;
+    map = { removeLayer() {} };
+    const setLayer = (_layer, _currentKey, frameIndex) => ({ mymeteoFrameIndex: frameIndex });
+    setKnmiImageLayer = setLayer;
+    setBuienradarImageLayer = setLayer;
+    knmiLayer = undefined;
+    knmiNextLayer = undefined;
+    knmiFrameUrls = knmiSignals.map((_, index) => "hybrid-knmi-" + index);
+    knmiFrameDates = knmiSignals.map((_, index) => new Date(startTimeMs + index * 5 * 60 * 1000));
+    knmiStartDate = new Date(startTimeMs);
+    knmiReferenceDate = new Date(startTimeMs);
+    knmiLoadedFrameUrls = new Set(knmiFrameUrls);
+    const knmiRadar = {
+      frameUrls: knmiFrameUrls,
+      frameDates: knmiFrameDates,
+      startDate: knmiStartDate,
+      referenceDate: knmiReferenceDate,
+      fetchedAt: Date.now(),
+    };
+    knmiRainSampleRun = createKnmiRainSampleRun(knmiRadar, selectedLocation, locationKey);
+    __makeHybridImageSamples(knmiSignals, startTimeMs).forEach((sample, index) => knmiRainSampleRun.samplesByIndex.set(index, sample));
+    buienradarFrameUrls = buienradarSignals.map((_, index) => "hybrid-buienradar-" + index);
+    loadedBuienradarRadarModeId = "3h";
+    buienradarStartDate = new Date(startTimeMs);
+    buienradarTimeline = { ...buienradarDefaultTimeline, frameCount: buienradarSignals.length };
+    buienradarRainSamples.set("3h", {
+      source: "radar-image",
+      modeId: "3h",
+      locationKey,
+      frameUrls: buienradarFrameUrls,
+      frameMinutes: 5,
+      startDate: buienradarStartDate,
+      fetchedAt: Date.now(),
+      samples: __makeHybridImageSamples(buienradarSignals, startTimeMs),
+    });
+    displayedRadarSource = "hybrid";
+    committedRadarSource = "hybrid";
+    hybridRadarStartDate = new Date(startTimeMs);
+    hybridRadarKnmiEndDate = knmiFrameDates.at(-1);
+    hybridRadarEndDate = new Date(startTimeMs + (buienradarSignals.length - 1) * 5 * 60 * 1000);
+    elements.radarSlider.disabled = false;
+    elements.radarSlider.min = "0";
+    elements.radarSlider.max = String(getHybridRadarSliderMaxValue());
+    elements.radarSlider.value = "0";
+  },
+  stageHybridKnmiGeneration({ signals, startTimeMs }) {
+    const nextFrameUrls = signals.map((_, index) => "refreshed-hybrid-knmi-" + index);
+    stageRadarDisplayReplacement(nextFrameUrls);
+    prepareKnmiLayersForReplacement();
+    knmiFrameUrls = nextFrameUrls;
+    knmiFrameDates = signals.map((_, index) => new Date(startTimeMs + index * 5 * 60 * 1000));
+    knmiStartDate = new Date(startTimeMs);
+    knmiReferenceDate = new Date(startTimeMs);
+    hybridRadarKnmiEndDate = knmiFrameDates.at(-1);
+    const radar = {
+      frameUrls: knmiFrameUrls,
+      frameDates: knmiFrameDates,
+      startDate: knmiStartDate,
+      referenceDate: knmiReferenceDate,
+      fetchedAt: Date.now(),
+    };
+    knmiRainSampleRun = createKnmiRainSampleRun(radar, selectedLocation, getBuienradarSampleLocationKey(selectedLocation));
+    const nextSamples = __makeHybridImageSamples(signals, startTimeMs);
+    sampleKnmiRainFrame = (_sampleRun, index) => nextSamples[index];
+  },
+  setTestLocation(location) {
+    selectedLocation = { ...selectedLocation, ...location };
+  },
+  getTimelineSnapshot() {
+    return precipitationTimelineSamples.map(({ date, level, precipitation }) => ({
+      timeMs: date.getTime(),
+      level,
+      chance: precipitation.chance,
+      source: precipitation.radarAdjustment?.source,
+    }));
+  },
+  clearKnmiRadar,
+  setHybridRadarPosition,
   stageKnmiFrameGeneration({ frameIds, startTimeMs }) {
     const nextFrameUrls = [...frameIds];
     stageRadarDisplayReplacement(nextFrameUrls);
@@ -456,6 +555,7 @@ globalThis.__mymeteoPrecipitationTest = {
   prepareCurrentKnmiRainSamples() {
     if (knmiRainSampleRun?.radar) {
       prepareKnmiRainSamples(knmiRainSampleRun.radar);
+      return knmiRainSampleRun.backgroundPromise;
     }
   },
   setActiveRainSourceAdjustment(adjustment) {
@@ -1120,6 +1220,79 @@ const pointAdjustment = rules.getInstantAdjustment(
   "point",
 );
 assert.equal(pointAdjustment.signal, 0, "point observations retain nearest-sample semantics");
+
+// Crossing the hybrid source boundary must not rewrite rain at any fixed timeline time.
+rules.reset();
+const hybridStartMs = Date.UTC(2026, 7, 26, 12);
+rules.setWeatherData({
+  current: {
+    time: hybridStartMs / 1000,
+    weather_code: 61,
+    temperature_2m: 12,
+    is_day: 1,
+    wind_speed_10m: 10,
+    wind_direction_10m: 180,
+  },
+  hourly: hourlyFixture({
+    chances: [90, 90],
+    codes: [61, 61],
+    rainAmounts: [1, 1],
+    startTimeMs: hybridStartMs,
+  }),
+});
+rules.setKnmiPointSamples({ signal: 0.3, timeMs: hybridStartMs });
+rules.configureHybridRadar({
+  startTimeMs: hybridStartMs,
+  knmiSignals: [0, 0.2, 0, 0.2, 0],
+  buienradarSignals: [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0, 0.2, 0],
+});
+rules.setHybridRadarPosition(399);
+const stableHybridTimeline = Array.from(rules.getTimelineSnapshot(), (sample) => ({ ...sample }));
+assert.equal(stableHybridTimeline.length, 9, "the regression covers every five-minute point in the full hybrid range");
+assert.deepEqual(
+  stableHybridTimeline.map(({ source }) => source),
+  ["knmi-image", "knmi-image", "knmi-image", "knmi-image", "knmi-image", "radar-image", "radar-image", "radar-image", "radar-image"],
+  "each timestamp uses its own side of the hybrid source boundary",
+);
+assert.equal(stableHybridTimeline[0].level, 0, "an earlier dry image suppresses the wet point/model fallback");
+assert.ok(stableHybridTimeline[1].level > 0, "an earlier wet image remains a visible shower");
+for (const sliderValue of [400, 401, 700, 401, 400, 100, 399, 401, 400, 0, 800, 399]) {
+  rules.setHybridRadarPosition(sliderValue);
+  assert.deepEqual(
+    Array.from(rules.getTimelineSnapshot(), (sample) => ({ ...sample })),
+    stableHybridTimeline,
+    "scrubbing to " + sliderValue + " preserves the entire curve and its source for each timestamp",
+  );
+  assert.equal(
+    rules.getRadarUiState().activeTimeMs,
+    hybridStartMs + sliderValue * 3000,
+    "the selected time still follows the slider while the forecast curve stays fixed",
+  );
+}
+rules.setHybridRadarPosition(401);
+assert.equal(rules.getKnmiLayerRetentionState().hasLayer, false, "the KNMI map layer is hidden on the Buienradar side");
+// A new KNMI forecast can become available while the selected map stays on Buienradar.
+rules.stageHybridKnmiGeneration({ signals: [0.2, 0, 0.2, 0, 0.2], startTimeMs: hybridStartMs });
+rules.setHybridRadarPosition(401);
+assert.equal(
+  rules.getDisplayedRadarSample(hybridStartMs),
+  undefined,
+  "accepting a refreshed hybrid generation rejects image samples from the old KNMI frame URLs",
+);
+await rules.prepareCurrentKnmiRainSamples();
+const refreshedHybridTimeline = Array.from(rules.getTimelineSnapshot(), (sample) => ({ ...sample }));
+assert.equal(refreshedHybridTimeline[0].source, "knmi-image", "new KNMI samples publish while the map remains on Buienradar");
+assert.ok(refreshedHybridTimeline[0].level > 0, "a real forecast refresh may add rain at an earlier time");
+assert.equal(refreshedHybridTimeline[1].level, 0, "the refreshed KNMI image still overrides wet point/model evidence");
+assert.deepEqual(refreshedHybridTimeline.slice(5), stableHybridTimeline.slice(5), "refreshing KNMI leaves the retained Buienradar half unchanged");
+assert.equal(rules.getRadarUiState().activeTimeMs, hybridStartMs + 401 * 3000, "background sampling preserves the selected absolute time");
+rules.setTestLocation({ lat: 51, lon: 4 });
+assert.equal(rules.getDisplayedRadarSample(hybridStartMs), undefined, "retained KNMI samples cannot leak to another location");
+assert.equal(rules.getDisplayedRadarSample(hybridStartMs + 30 * 60 * 1000), undefined, "retained Buienradar samples cannot leak to another location");
+rules.clearKnmiRadar();
+assert.equal(rules.getKnmiLayerRetentionState().committedFrameCount, 0, "a full KNMI reset still invalidates its committed generation");
+assert.equal(rules.getPublishedKnmiSampleCount(), 0, "a full KNMI reset removes the retained local samples");
+assert.equal(rules.getDisplayedRadarSample(hybridStartMs), undefined, "a full reset cannot expose the removed KNMI source");
 
 // Preparing a refreshed KNMI generation keeps the last coherent image and sample generation visible.
 rules.reset();

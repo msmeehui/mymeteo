@@ -1,6 +1,6 @@
 # MyMeteo Project Context
 
-Last updated: 2026-08-30
+Last updated: 2026-09-05
 
 This file is the shared product memory for MyMeteo. Read it before discussing or changing the app in a new Codex chat. It summarizes the decisions, trade-offs, and design philosophy that emerged from the MyMeteo development chats, the app changelog, the README, git history, and the current implementation.
 
@@ -149,6 +149,8 @@ The chosen direction is not to add lots of visible warnings. Instead, MyMeteo sh
 - Do not alter the radar animation based on Open-Meteo. The map should remain honest radar data.
 
 For Today, the icon/condition, compact rain value and intensity, precipitation graph, selected-value point, and outfit recommendation should consume one canonical selected-time precipitation state. This selected-time value is intentionally different from the 5-day remaining-day maximum. Inside visible image-radar coverage, the displayed radar image is authoritative for local wet/dry and intensity. Read the projected location from only the four image pixels immediately surrounding that exact point, blended by distance; the wider nearby area is useful hidden context but is not evidence of rain at the location marker. A KNMI point reading must not override a dry displayed image, even near now. Point data remains the first fallback when the displayed image cannot be sampled, and model data remains the final fallback. Samples from the displayed frame generation remain valid while that generation stays onscreen, independent of the shorter cache-freshness limit used to decide whether radar data may be reused for a later load. Between two image frames, rain signals should use the same temporal interpolation as the map crossfade. Sample the selected lower and upper frames before switching the visible map, card, icon, graph marker, and selected time; keep the previous committed state visible while the replacement is still loading, and ignore obsolete load completions.
+
+For a fixed location and loaded forecast, scrubbing across the KNMI/Buienradar boundary must leave the full precipitation curve unchanged. Hiding a map layer must preserve the image readings for its portion of the accepted hybrid timeline. Choose each graph timestamp's source by its valid time, independently of which provider is currently visible on the map. When a refreshed hybrid forecast is accepted while the selected time is in the Buienradar portion, also accept the new KNMI sample generation and publish its readings as they become available; earlier timestamps must not keep using the old KNMI run. Location and full source resets still invalidate the retained generation.
 
 If a replacement radar frame cannot load, keep the previous coherent view and return the slider to that time.
 

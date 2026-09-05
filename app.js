@@ -6482,12 +6482,7 @@ function renderKnmiFramePosition(framePosition, { onCommit, onFailure } = {}) {
       knmiNextLayerKey = undefined;
     }
 
-    knmiCommittedFrameUrls = frameUrls;
-    knmiCommittedRainSampleRun = sampleRun;
-    if (sampleRun) {
-      sampleRun.hasCommittedFrame = true;
-      publishKnmiRainSampleRun(sampleRun, { render: false });
-    }
+    commitKnmiFrameGeneration(frameUrls, sampleRun);
     clearLibreWxrRadar();
     const keepRadarStatusOnCommit = Boolean(
       radarDisplayReplacement?.targetKnmiFrameUrls === frameUrls
@@ -6550,8 +6545,9 @@ function setHybridRadarPosition(value) {
       },
     });
   } else {
-    clearKnmiLayers();
+    hideKnmiLayers();
     renderBuienradarFramePosition(getBuienradarFramePositionForDate(displayDate));
+    commitKnmiFrameGeneration();
     clearLibreWxrRadar();
     committedRadarSource = "hybrid";
     updateRadarTimeDisplay(displayDate, sliderValue, DEFAULT_LOCATION.timezone);
@@ -7158,7 +7154,7 @@ function prepareKnmiRainSamples(radar) {
   sampleRun.backgroundPromise = ensureKnmiRainSamplesForFrameIndexes(sampleRun, preferredIndexes)
     .then(() => buildKnmiRainSamples(sampleRun, remainingIndexes))
     .then(() => {
-      publishKnmiRainSampleRun(sampleRun, { render: sampleRun.hasCommittedFrame });
+      publishKnmiRainSampleRun(sampleRun, { render: sampleRun.isCommittedToTimeline });
     })
     .catch((error) => {
       console.warn("Could not sample KNMI rain at the selected location.", error);
@@ -7185,7 +7181,7 @@ function createKnmiRainSampleRun(radar, location, locationKey) {
     samplesByIndex: new Map(),
     sampleRequests: new Map(),
     failedIndexes: new Set(),
-    hasCommittedFrame: false,
+    isCommittedToTimeline: false,
     backgroundPromise: undefined,
   };
 
@@ -7244,7 +7240,7 @@ function publishKnmiRainSampleRun(sampleRun, { render = false } = {}) {
   if (
     knmiRainSampleRun !== sampleRun
     || sampleRun.locationKey !== getBuienradarSampleLocationKey(selectedLocation)
-    || !sampleRun.hasCommittedFrame
+    || !sampleRun.isCommittedToTimeline
   ) {
     return false;
   }
@@ -8385,7 +8381,7 @@ function hasDisplayedKnmiRainSamplesForDate(forecastDate, sampleSeries = knmiRai
   }
 
   if (
-    !sampleRun.hasCommittedFrame
+    !sampleRun.isCommittedToTimeline
     || sampleRun.frameUrls !== sampleSeries?.frameUrls
   ) {
     return false;
@@ -8797,6 +8793,19 @@ function prepareBuienradarLayersForReplacement() {
   buienradarNextLayerKey = undefined;
 }
 
+function commitKnmiFrameGeneration(
+  frameUrls = knmiFrameUrls,
+  sampleRun = getCurrentKnmiRainSampleRun(frameUrls),
+) {
+  knmiCommittedFrameUrls = frameUrls;
+  knmiCommittedRainSampleRun = sampleRun;
+  if (sampleRun) {
+    // The accepted hybrid timeline can use KNMI while the map shows Buienradar.
+    sampleRun.isCommittedToTimeline = true;
+    publishKnmiRainSampleRun(sampleRun, { render: false });
+  }
+}
+
 function commitBuienradarFrameGeneration() {
   buienradarCommittedFrameUrls = buienradarFrameUrls;
   buienradarCommittedModeId = loadedBuienradarRadarModeId;
@@ -8852,6 +8861,13 @@ function clearBuienradarRadar() {
 }
 
 function clearKnmiLayers() {
+  hideKnmiLayers();
+  knmiCommittedFrameUrls = [];
+  knmiCommittedRainSampleRun = undefined;
+}
+
+function hideKnmiLayers() {
+  // A hidden KNMI layer still supplies the earlier half of the hybrid timeline.
   knmiFrameRenderRequestId += 1;
   if (knmiLayer) {
     map.removeLayer(knmiLayer);
@@ -8864,9 +8880,6 @@ function clearKnmiLayers() {
     knmiNextLayer = undefined;
     knmiNextLayerKey = undefined;
   }
-
-  knmiCommittedFrameUrls = [];
-  knmiCommittedRainSampleRun = undefined;
 }
 
 function prepareKnmiLayersForReplacement() {
