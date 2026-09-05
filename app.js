@@ -713,6 +713,8 @@ const dateTimeFormatterCache = new Map();
 let map;
 let isMapUnavailable = false;
 let libreWxrRadarLayers = new Map();
+let libreWxrRadarRun;
+let libreWxrFrameRenderRequestId = 0;
 let buienradarLayer;
 let buienradarLayerKey;
 let buienradarNextLayer;
@@ -2610,6 +2612,18 @@ function renderPrecipitationTimeline() {
     return;
   }
 
+  // An hourly model curve cannot describe the gaps between LibreWXR showers.
+  // Keep the fine-grained graph unavailable until every frame has a local reading.
+  if (committedRadarSource === "librewxr" && (
+    !libreWxrRadarRun
+    || libreWxrRadarRun.frames !== radarFrames
+    || libreWxrRadarRun.locationKey !== getBuienradarSampleLocationKey(selectedLocation)
+    || libreWxrRadarRun.frames.some((_, index) => !libreWxrRadarRun.samplesByIndex.has(index))
+  )) {
+    hidePrecipitationTimeline();
+    return;
+  }
+
   const samples = buildPrecipitationTimelineSamples(range);
   if (samples.length < 2) {
     hidePrecipitationTimeline();
@@ -2668,11 +2682,20 @@ function buildPrecipitationTimelineSamples(range) {
     precipitationTimelineMaxSampleCount,
   );
 
-  return Array.from({ length: sampleCount }, (_, index) => {
+  const times = Array.from({ length: sampleCount }, (_, index) => {
     const progress = sampleCount <= 1 ? 0 : index / (sampleCount - 1);
-    const date = new Date(range.start.getTime() + durationMs * progress);
-    return buildPrecipitationTimelineSample(date, range);
-  }).filter(Boolean);
+    return range.start.getTime() + durationMs * progress;
+  });
+  if (committedRadarSource === "librewxr") {
+    // Preserve shower peaks and dry gaps at actual frame times, even when the
+    // slider starts between frames as the device clock advances.
+    radarFrames.forEach((frame) => {
+      const time = frame.time * 1000;
+      if (time >= range.start.getTime() && time <= range.end.getTime()) times.push(time);
+    });
+  }
+  return [...new Set(times)].sort((left, right) => left - right)
+    .map((time) => buildPrecipitationTimelineSample(new Date(time), range)).filter(Boolean);
 }
 
 function buildPrecipitationTimelineSample(date, range) {
@@ -2719,6 +2742,10 @@ function getPrecipitationTimelineRadarAdjustment(date) {
 }
 
 function getPrecipitationTimelineRadarSampleSeries(date) {
+  if (committedRadarSource === "librewxr") {
+    return getDisplayedLibreWxrImageRainSampleSeries(date);
+  }
+
   if (committedRadarSource === "hybrid") {
     const retainedState = radarDisplayReplacement && !radarDisplayReplacement.isCommitting
       ? radarDisplayReplacement.previousState
@@ -2906,7 +2933,7 @@ function getPrecipitationTimelineLevel(precipitation) {
 }
 
 function isRadarImageAdjustmentSource(source) {
-  return source === "knmi-image" || source === "radar-image";
+  return source === "knmi-image" || source === "radar-image" || source === "librewxr-image";
 }
 
 function getPrecipitationTimelineY(level) {
@@ -6293,33 +6320,57 @@ async function loadLibreWxrRadar(context) {
     return;
   }
 
-  radarDisplayReplacement = undefined;
-  clearLibreWxrRadar();
-  clearBuienradarRadar();
-  clearKnmiRadar();
-  radarFrames = nextRadarFrames;
-  displayedRadarSource = "librewxr";
-  committedRadarSource = "librewxr";
-  const previousMin = getRadarSliderMin();
-  const previousValue = Number(elements.radarSlider.value) || previousMin;
-  const previousMax = Number(elements.radarSlider.max) || 0;
-  const previousRatio = previousMax > previousMin
-    ? (previousValue - previousMin) / (previousMax - previousMin)
-    : 0;
-  const maxValue = Math.max((radarFrames.length - 1) * 100, 0);
-  const nextValue = Math.round(Math.min(Math.max(previousRatio, 0), 1) * maxValue);
-  createLibreWxrRadarLayers();
-  elements.radarSlider.disabled = false;
-  elements.radarSlider.min = "0";
-  elements.radarSlider.max = String(maxValue);
-  elements.radarSlider.step = "1";
-  elements.radarSlider.value = String(nextValue);
-  radarSliderWasAtStart = isRadarSliderAtStart(nextValue);
-  setLibreWxrRadarPosition(nextValue);
-  updateSliderTimestamps();
-  renderPrecipitationTimeline();
-  clearRadarMapStatus();
-  refreshMapSize();
+  const run = await prepareLibreWxrRadarRun(nextRadarFrames, context);
+  if (!isRadarLoadContextCurrent(context)) {
+    disposeLibreWxrRadarRun(run);
+    return;
+  }
+
+  try {
+    // Construct the replacement invisibly. The current map remains usable while
+    // its replacement's tiles and exact-location readings load.
+    run.layers = createLibreWxrRadarLayers(run);
+    let nextValue;
+    while (true) {
+      const selectedDate = activeRadarDate || new Date();
+      nextValue = getLibreWxrRunSliderValue(run, selectedDate);
+      const ready = await ensureLibreWxrLayersReady(run, nextValue);
+      if (!isRadarLoadContextCurrent(context)) return;
+      if (!ready) throw new Error("LibreWXR radar frame did not load");
+      const latestValue = getLibreWxrRunSliderValue(run, activeRadarDate || new Date());
+      if (getLibreWxrFrameIndexes(run.frames, latestValue).every((index) =>
+        getLibreWxrFrameIndexes(run.frames, nextValue).includes(index))) {
+        nextValue = latestValue;
+        break;
+      }
+    }
+
+    radarDisplayReplacement = undefined;
+    clearLibreWxrRadar();
+    clearBuienradarRadar();
+    clearKnmiRadar();
+    radarFrames = run.frames;
+    libreWxrRadarRun = run;
+    libreWxrRadarLayers = run.layers;
+    displayedRadarSource = "librewxr";
+    committedRadarSource = "librewxr";
+    elements.radarPanel.classList.remove("is-animated");
+    elements.radarSlider.disabled = run.frames.length < 2;
+    elements.radarSlider.min = "0";
+    elements.radarSlider.max = String(Math.max((run.frames.length - 1) * 100, 0));
+    elements.radarSlider.step = "1";
+    alignRadarSliderStartWithCurrentTime();
+    nextValue = Math.round(clampNumber(nextValue, getRadarSliderMin(), Number(elements.radarSlider.max)));
+    elements.radarSlider.value = String(nextValue);
+    radarSliderWasAtStart = isRadarSliderAtStart(nextValue);
+    commitLibreWxrRadarPosition(nextValue);
+    updateSliderTimestamps();
+    renderPrecipitationTimeline();
+    updateLibreWxrSamplingStatus();
+    refreshMapSize();
+  } finally {
+    if (libreWxrRadarRun !== run) disposeLibreWxrRadarRun(run);
+  }
 }
 
 function refreshMapSize() {
@@ -6400,7 +6451,25 @@ function disableRadar(message) {
   elements.radarTime.classList.add("error");
 }
 
-function setLibreWxrRadarPosition(value) {
+async function setLibreWxrRadarPosition(value) {
+  const run = libreWxrRadarRun;
+  if (!run || displayedRadarSource !== "librewxr") return;
+  const requestId = ++libreWxrFrameRenderRequestId;
+  const ready = await ensureLibreWxrLayersReady(run, value);
+  if (run !== libreWxrRadarRun || requestId !== libreWxrFrameRenderRequestId
+    || displayedRadarSource !== "librewxr"
+    || run.locationKey !== getBuienradarSampleLocationKey(selectedLocation)) return;
+  if (!ready) {
+    elements.radarSlider.value = String(getLibreWxrRunSliderValue(run, activeRadarDate));
+    radarSliderWasAtStart = isRadarSliderAtStart(Number(elements.radarSlider.value));
+    setRadarMapStatus("Radar update delayed", { isError: true });
+    return;
+  }
+  commitLibreWxrRadarPosition(value);
+  updateLibreWxrSamplingStatus();
+}
+
+function commitLibreWxrRadarPosition(value) {
   if (!radarFrames.length) {
     return;
   }
@@ -7218,22 +7287,264 @@ function ceilDateToMinuteInterval(date, intervalMinutes) {
   return new Date(Math.ceil(date.getTime() / intervalMs) * intervalMs);
 }
 
-function createLibreWxrRadarLayers() {
-  radarFrames.forEach((frame, index) => {
+function createLibreWxrRadarLayers(run) {
+  const layers = new Map();
+  run.frames.forEach((frame, index) => {
     const layer = L.tileLayer(`${frame.host}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`, {
       tileSize: 256,
       opacity: 0,
+      minNativeZoom: 7,
       maxNativeZoom: 7,
       maxZoom: 11,
       keepBuffer: 4,
       updateWhenIdle: false,
       updateWhenZooming: false,
+      crossOrigin: "anonymous",
       attribution: '<a href="https://librewxr.net/">LibreWXR</a>',
-    }).addTo(map);
-
+    });
+    const getTileUrl = layer.getTileUrl;
+    layer.getTileUrl = function (coords) {
+      const url = getTileUrl.call(this, coords);
+      // Freeze the sampled tiles, so map and chart use identical image bytes.
+      return run.tiles.get(url)?.url || url;
+    };
+    layer.on("loading", () => { layer.mymeteoTileError = false; });
+    layer.on("tileerror", () => { layer.mymeteoTileError = true; });
     layer.setZIndex(20 + index);
-    libreWxrRadarLayers.set(frame.path, layer);
+    layer.addTo(map);
+    layers.set(frame.path, layer);
   });
+  return layers;
+}
+
+function getLibreWxrFrameIndexes(frames, value) {
+  const position = clampNumber(Number(value) / 100 || 0, 0, Math.max(frames.length - 1, 0));
+  const lower = Math.floor(position);
+  return position === lower ? [lower] : [lower, lower + 1];
+}
+
+function getLibreWxrRunSliderValue(run, date) {
+  const time = date instanceof Date ? date.getTime() / 1000 : run.frames[0].time;
+  const upper = run.frames.findIndex((frame) => frame.time >= time);
+  if (upper === 0) return 0;
+  if (upper < 0) return (run.frames.length - 1) * 100;
+  return (upper - 1 + (time - run.frames[upper - 1].time)
+    / (run.frames[upper].time - run.frames[upper - 1].time)) * 100;
+}
+
+async function ensureLibreWxrLayersReady(run, value) {
+  const results = await Promise.all(getLibreWxrFrameIndexes(run.frames, value).map((index) => {
+    const layer = run.layers.get(run.frames[index].path);
+    if (!layer) return false;
+    if (!layer.isLoading()) return !layer.mymeteoTileError;
+    return new Promise((resolve) => {
+      const finish = () => {
+        window.clearTimeout(timeout);
+        layer.off("load", onLoad);
+        resolve(!layer.isLoading() && !layer.mymeteoTileError);
+      };
+      const onLoad = () => finish();
+      const timeout = window.setTimeout(finish, libreWxrRadarTimeoutMs);
+      layer.on("load", onLoad);
+    });
+  }));
+  return results.every(Boolean);
+}
+
+function disposeLibreWxrRadarRun(run) {
+  if (!run) return;
+  run.layers?.forEach((layer) => map?.removeLayer(layer));
+  run.tiles?.forEach((tile) => URL.revokeObjectURL(tile.url));
+  run.tiles?.clear();
+}
+
+function updateLibreWxrSamplingStatus() {
+  if (libreWxrRadarRun?.frames.some((_, index) => !libreWxrRadarRun.samplesByIndex.has(index))) {
+    setRadarMapStatus("Local rain detail unavailable");
+  } else {
+    clearRadarMapStatus();
+  }
+}
+
+async function prepareLibreWxrRadarRun(frames, context) {
+  const run = {
+    frames,
+    location: context.location,
+    locationKey: context.locationKey,
+    fetchedAt: Date.now(),
+    samplesByIndex: new Map(),
+    tiles: new Map(),
+    tileRequests: new Map(),
+    layers: new Map(),
+    zoom: 7,
+  };
+  // The provider's coverage PNG marks only wet pixels. Its loaded global IFS
+  // fallback, checked against the accepted frame catalog, establishes coverage
+  // for transparent pixels instead. Unknown availability must never mean dry.
+  run.coveragePromise = fetchLibreWxrAvailability(frames[0].host);
+  await Promise.all(frames.map(async (_, index) => {
+    const sample = await sampleLibreWxrRainFrame(run, index);
+    if (sample) run.samplesByIndex.set(index, sample);
+  }));
+  run.tileRequests.clear();
+  return run;
+}
+
+async function fetchLibreWxrAvailability(host) {
+  try {
+    const { response, body } = await fetchBodyWithTimeout(`${host}/health`, {
+      timeoutMs: libreWxrRadarTimeoutMs,
+      cache: "no-store",
+      readBody: (result) => result.json(),
+    });
+    return response.ok ? body : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function hasLibreWxrDryCoverage(availability, frames, frame) {
+  return Boolean(availability?.status === "ok"
+    && availability.ecmwf_grid?.loaded === true
+    && availability.ecmwf_grid.timesteps > 0
+    && availability.nwp_chain?.sources?.includes("ecmwf_ifs")
+    && availability.frames?.latest === frames[0]?.time
+    && (frame === frames[0] || availability.nowcast?.frames?.includes(frame.time)));
+}
+
+function getLibreWxrSamplePixels(location, zoom) {
+  if (!Number.isFinite(location.lat) || !Number.isFinite(location.lon)
+    || Math.abs(location.lat) > webMercatorMaxLatitude) return [];
+  const size = 256 * 2 ** zoom;
+  const lat = location.lat * Math.PI / 180;
+  const x = ((location.lon + 180) / 360) * size - 0.5;
+  const y = ((1 - Math.asinh(Math.tan(lat)) / Math.PI) / 2) * size - 0.5;
+  const pixels = [];
+  for (const py of [Math.floor(y), Math.floor(y) + 1]) {
+    for (const px of [Math.floor(x), Math.floor(x) + 1]) {
+      const weight = (1 - Math.abs(px - x)) * (1 - Math.abs(py - y));
+      if (weight <= 0) continue;
+      const wrappedX = ((px % size) + size) % size;
+      const clampedY = clampNumber(py, 0, size - 1);
+      pixels.push({
+        tileX: Math.floor(wrappedX / 256), tileY: Math.floor(clampedY / 256),
+        x: wrappedX % 256, y: clampedY % 256, weight,
+      });
+    }
+  }
+  return pixels;
+}
+
+async function sampleLibreWxrRainFrame(run, index) {
+  try {
+    const frame = run.frames[index];
+    const points = getLibreWxrSamplePixels(run.location, run.zoom);
+    if (!points.length) return undefined;
+    const tiles = await Promise.all(points.map((point) => loadLibreWxrSampleTile(run,
+      `${frame.host}${frame.path}/256/${run.zoom}/${point.tileX}/${point.tileY}/2/1_1.png`)));
+    const availability = await run.coveragePromise;
+    let exactSignal = 0;
+    let exactIntensitySignal = 0;
+    let exactCoverage = 0;
+    for (let i = 0; i < points.length; i += 1) {
+      const point = points[i];
+      const offset = (point.y * 256 + point.x) * 4;
+      const sample = getLibreWxrPixelRainSample(...tiles[i].pixels.slice(offset, offset + 4));
+      if (sample.intensityRank === 0 && !hasLibreWxrDryCoverage(availability, run.frames, frame)) return undefined;
+      exactSignal += sample.chanceSignal * point.weight;
+      exactIntensitySignal += sample.intensitySignal * point.weight;
+      if (sample.intensityRank > 0) exactCoverage += point.weight;
+    }
+    const intensityRank = getRadarSampleIntensityRankForSignal(exactIntensitySignal);
+    return {
+      time: frame.time * 1000,
+      signal: exactSignal, chanceSignal: exactSignal, exactSignal,
+      intensitySignal: exactIntensitySignal, exactIntensitySignal,
+      intensityRank, exactIntensityRank: intensityRank,
+      exactCoverage, nearbySignal: 0, nearbyCoverage: 0, nearbyIntensityRank: 0,
+      chance: getBuienradarSignalChance({ signal: exactSignal, exactSignal, nearbySignal: 0 }),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function loadLibreWxrSampleTile(run, url) {
+  if (run.tileRequests.has(url)) return run.tileRequests.get(url);
+  const request = (async () => {
+    const { response, body } = await fetchBodyWithTimeout(url, {
+      timeoutMs: libreWxrRadarTimeoutMs,
+      readBody: (result) => result.blob(),
+    });
+    if (!response.ok) throw new Error("LibreWXR sample tile unavailable");
+    const objectUrl = URL.createObjectURL(body);
+    try {
+      const image = await new Promise((resolve, reject) => {
+        const image = new Image();
+        const timeout = window.setTimeout(() => {
+          image.onload = image.onerror = null;
+          image.src = "";
+          reject(new Error("LibreWXR tile decoding timed out"));
+        }, libreWxrRadarTimeoutMs);
+        image.onload = () => { window.clearTimeout(timeout); resolve(image); };
+        image.onerror = () => { window.clearTimeout(timeout); reject(new Error("LibreWXR tile decoding failed")); };
+        image.src = objectUrl;
+      });
+      if (image.naturalWidth !== 256 || image.naturalHeight !== 256) throw new Error("Invalid LibreWXR tile size");
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 256;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      context.drawImage(image, 0, 0);
+      const tile = { url: objectUrl, pixels: context.getImageData(0, 0, 256, 256).data };
+      run.tiles.set(url, tile);
+      return tile;
+    } catch (error) {
+      URL.revokeObjectURL(objectUrl);
+      throw error;
+    }
+  })();
+  run.tileRequests.set(url, request);
+  return request;
+}
+
+function getLibreWxrPixelRainSample(red, green, blue, alpha) {
+  if (alpha < 18) return { intensityRank: 0, chanceSignal: 0, intensitySignal: 0 };
+  // Universal Blue rain/snow anchors from LibreWXR's palette 2. Decode only
+  // broad intensity classes; the rendered colors do not justify exact mm/h.
+  const rain = [0x88ddee, 0x0099cc, 0x0077aa, 0x005588, 0xffee00, 0xffaa00,
+    0xff7700, 0xff4400, 0xee0000, 0x990000, 0xffaaff, 0xff77ff, 0xff44ff, 0xff00ff, 0xaa00aa];
+  const snow = [0xbfffff, 0x9fdfff, 0x7fbfff, 0x5f9fff, 0x4f8fff, 0x3f7fff,
+    0x2f6fff, 0x1f5fff, 0x0f4fff, 0x003fff, 0x002fff, 0x001fff, 0x000fff, 0x0000ff];
+  const rgb = [red, green, blue].map((channel) => Math.min(255, channel * 255 / alpha));
+  let closest = { distance: Infinity, rank: 1 };
+  [rain, snow].forEach((palette) => palette.forEach((color, index) => {
+    const distance = ((color >> 16) - rgb[0]) ** 2 + (((color >> 8) & 255) - rgb[1]) ** 2
+      + ((color & 255) - rgb[2]) ** 2;
+    if (distance < closest.distance) closest = { distance, rank: index >= 5 ? 3 : index >= 3 ? 2 : 1 };
+  }));
+  return { intensityRank: closest.rank,
+    intensitySignal: getBuienradarIntensitySignalForRank(closest.rank) * (alpha / 255),
+    chanceSignal: getBuienradarChanceSignalForRank(closest.rank) * (alpha / 255) };
+}
+
+function getDisplayedLibreWxrImageRainSampleSeries(date) {
+  const run = libreWxrRadarRun;
+  if (!run || run.frames !== radarFrames
+    || run.locationKey !== getBuienradarSampleLocationKey(selectedLocation)
+    || !(date instanceof Date) || Number.isNaN(date.getTime())) return undefined;
+  const time = date.getTime() / 1000;
+  if (time < run.frames[0].time || time > run.frames[run.frames.length - 1].time) return undefined;
+  const position = getLibreWxrRunSliderValue(run, date);
+  const indexes = getLibreWxrFrameIndexes(run.frames, position);
+  if (!indexes.every((index) => run.samplesByIndex.has(index))) return undefined;
+  const samples = indexes.map((index) => run.samplesByIndex.get(index));
+  return {
+    source: "librewxr-image", locationKey: run.locationKey,
+    startDate: new Date(run.frames[0].time * 1000), referenceDate: new Date(run.frames[0].time * 1000),
+    fetchedAt: run.fetchedAt, crs: "EPSG:3857", maxLookaheadHours: 8,
+    frameMinutes: samples.length > 1 ? (samples[1].time - samples[0].time) / 60000 : 10,
+    samples,
+  };
 }
 
 function scheduleInactiveBuienradarRadarPreload() {
@@ -9038,6 +9349,9 @@ function setKnmiImageLayer(layer, currentKey, frameIndex, opacity, zIndex, attri
 }
 
 function clearLibreWxrRadar() {
+  libreWxrFrameRenderRequestId += 1;
+  disposeLibreWxrRadarRun(libreWxrRadarRun);
+  libreWxrRadarRun = undefined;
   libreWxrRadarLayers.forEach((layer) => {
     map.removeLayer(layer);
   });

@@ -64,7 +64,7 @@ No browser API key is required. Netherlands KNMI WMS requests are routed through
 - Near-term rain in the Netherlands: the Today card follows the displayed KNMI/Buienradar radar image when it can be read at the selected location; KNMI point rain and then Buienradar/Open-Meteo provide fallback and longer-range guidance
 - Thunderstorm icon support: Open-Meteo weather codes plus CAPE/lightning-potential signals for cautious heavy-rain storm upgrades
 - Radar frame decoding: [gifuct-js](https://github.com/matt-way/gifuct-js) through [esm.sh](https://esm.sh/)
-- Fallback radar tiles: [LibreWXR](https://librewxr.net/)
+- Fallback/outside-Netherlands radar: [LibreWXR](https://librewxr.net/); the Today graph and rain condition use the exact location in the same displayed frames. Unknown local readings withhold the detailed graph instead of drawing hourly model rain as continuous minute-level rainfall.
 - Map tiles: [OpenStreetMap](https://www.openstreetmap.org/) through [Leaflet](https://leafletjs.com/)
 - Privacy-friendly usage statistics: [Simple Analytics](https://www.simpleanalytics.com/)
 - Weather icons: custom MyMeteo SVG icons in `assets/weather-icons-mymeteo/`

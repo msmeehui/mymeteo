@@ -443,7 +443,7 @@
                 </div>
                 <div>
                   <dt>Near-term rain chance:</dt>
-                  <dd>For the selected Today time in the Netherlands, rain follows the displayed KNMI/Buienradar radar image when it can be read at the location. KNMI point rain and then Buienradar/Open-Meteo provide fallback and longer-range guidance. Open-Meteo storm instability signals can upgrade heavy rain to a thunderstorm icon. Rain intensity is shown separately with a small three-step meter.</dd>
+                  <dd>For the selected Today time, local rain follows the displayed KNMI, Buienradar or LibreWXR imagery when a reliable reading is available at the location. KNMI point rain and then Buienradar/Open-Meteo provide fallback and longer-range guidance. Open-Meteo storm instability signals can upgrade heavy rain to a thunderstorm icon. Rain intensity is shown separately with a small three-step meter. The detailed LibreWXR rain graph is unavailable when local readings cannot be established.</dd>
                 </div>
                 <div>
                   <dt>Radar frame decoding:</dt>
@@ -510,6 +510,11 @@
               <span class="info-section-chevron" aria-hidden="true"></span>
             </summary>
             <div class="info-section-body changelog">
+              <h3>5 September 2026</h3>
+              <ul>
+                <li>Improved rain radar and precipitation graph consistency outside the Netherlands.</li>
+              </ul>
+
               <h3>29 August 2026</h3>
               <ul>
                 <li>Improved rain radar positioning and current-rain accuracy.</li>
@@ -632,6 +637,6 @@
       src="https://scripts.simpleanalyticscdn.com/latest.js"
     ></script>
     <script src="assets/vendor/lucide-0.475.0.min.js"></script>
-    <script src="app.js?v=20260905-05"></script>
+    <script src="app.js?v=20260905-06"></script>
   </body>
 </html>
