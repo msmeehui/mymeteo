@@ -148,7 +148,6 @@ const elements = {
   precipitationTimelineChart: document.querySelector(".precipitation-timeline-chart"),
   precipitationTimelineArea: document.querySelector("#precipitationTimelineArea"),
   precipitationTimelineMarker: document.querySelector("#precipitationTimelineMarker"),
-  precipitationTimelineSelection: document.querySelector("#precipitationTimelineSelection"),
   rainSourceDebugPanel: document.querySelector("#rainSourceDebugPanel"),
   rainSourceDebugGrid: document.querySelector("#rainSourceDebugGrid"),
   rainSourceModeButtons: [...document.querySelectorAll("[data-rain-source-mode]")],
@@ -2606,9 +2605,6 @@ function hidePrecipitationTimeline() {
   if (elements.precipitationTimelineArea) {
     elements.precipitationTimelineArea.removeAttribute("d");
   }
-  if (elements.precipitationTimelineSelection) {
-    elements.precipitationTimelineSelection.hidden = true;
-  }
 }
 
 function buildPrecipitationTimelineSamples(range) {
@@ -2912,17 +2908,15 @@ function updatePrecipitationTimelineMarker(
   elements.precipitationTimelineMarker.setAttribute("x1", formatSvgNumber(position));
   elements.precipitationTimelineMarker.setAttribute("x2", formatSvgNumber(position));
 
-  const precipitation = selectedPrecipitation || getSelectedTimePrecipitation(new Date(clampedTime));
-  if (elements.precipitationTimelineSelection && precipitation) {
-    const selectedY = getPrecipitationTimelineY(getPrecipitationTimelineLevel(precipitation));
-    elements.precipitationTimelineSelection.style.left = `${formatSvgNumber(position)}%`;
-    elements.precipitationTimelineSelection.style.top = `${formatSvgNumber(
-      (selectedY / precipitationTimelineBaselineY) * 100,
-    )}%`;
-    elements.precipitationTimelineSelection.hidden = false;
-  } else if (elements.precipitationTimelineSelection) {
-    elements.precipitationTimelineSelection.hidden = true;
+  const chartBounds = elements.precipitationTimelineChart?.getBoundingClientRect();
+  if (chartBounds?.height > 0) {
+    const sliderBounds = elements.radarSlider.getBoundingClientRect();
+    const thumbTop = sliderBounds.top + (sliderBounds.height - getRadarSliderThumbSize()) / 2;
+    const markerBottom = ((thumbTop - chartBounds.top) / chartBounds.height) * precipitationTimelineBaselineY;
+    elements.precipitationTimelineMarker.setAttribute("y2", formatSvgNumber(markerBottom));
   }
+
+  const precipitation = selectedPrecipitation || getSelectedTimePrecipitation(new Date(clampedTime));
 
   const nearestSample = getClosestPrecipitationTimelineSample(new Date(clampedTime), samples);
   if (nearestSample) {
@@ -6933,6 +6927,7 @@ function updateSliderTimestamps() {
 
   elements.sliderTimestamps.hidden = false;
   elements.sliderTimestamps.replaceChildren(track);
+  updatePrecipitationTimelineMarker();
 }
 
 function getSliderTimestampDates(start, end, maxLabels) {
