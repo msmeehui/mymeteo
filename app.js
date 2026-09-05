@@ -707,6 +707,8 @@ const buienradarHourlyLookbackMinutes = 10;
 const buienradarHourlyWindowMinutes = 30;
 const freezingTemperatureThreshold = 0;
 const compassPoints = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+const dateTimeFormatterCacheLimit = 16;
+const dateTimeFormatterCache = new Map();
 
 let map;
 let isMapUnavailable = false;
@@ -10234,9 +10236,29 @@ function getMedian(values) {
     : sortedValues[middle];
 }
 
+function getDateTimeFormatter(locale, options) {
+  // Keep implicit device timezone changes visible without retaining an old formatter.
+  if (options.timeZone === undefined) {
+    return new Intl.DateTimeFormat(locale, options);
+  }
+
+  const key = JSON.stringify([locale, options]);
+  const cached = dateTimeFormatterCache.get(key);
+  if (cached) {
+    return cached;
+  }
+
+  const formatter = new Intl.DateTimeFormat(locale, options);
+  if (dateTimeFormatterCache.size >= dateTimeFormatterCacheLimit) {
+    dateTimeFormatterCache.delete(dateTimeFormatterCache.keys().next().value);
+  }
+  dateTimeFormatterCache.set(key, formatter);
+  return formatter;
+}
+
 function formatWeekday(value, weekday = "short") {
   if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return new Intl.DateTimeFormat("en-US", {
+    return getDateTimeFormatter("en-US", {
       weekday,
       timeZone: "UTC",
     }).format(new Date(`${value}T12:00:00Z`));
@@ -10245,12 +10267,12 @@ function formatWeekday(value, weekday = "short") {
   const date = toForecastDate(value);
 
   try {
-    return new Intl.DateTimeFormat("en-US", {
+    return getDateTimeFormatter("en-US", {
       weekday,
       timeZone: selectedLocation.timezone,
     }).format(date);
   } catch (error) {
-    return new Intl.DateTimeFormat("en-US", {
+    return getDateTimeFormatter("en-US", {
       weekday,
       timeZone: DEFAULT_LOCATION.timezone,
     }).format(date);
@@ -10331,7 +10353,7 @@ function dateFromTimeZoneParts(parts, timezone = selectedLocation.timezone) {
 }
 
 function getFormattedDateParts(date, timezone) {
-  const parts = new Intl.DateTimeFormat("en-US", {
+  const parts = getDateTimeFormatter("en-US", {
     day: "2-digit",
     hour: "2-digit",
     hourCycle: "h23",
@@ -10353,13 +10375,13 @@ function getFormattedDateParts(date, timezone) {
 
 function formatClock(date, timezone = selectedLocation.timezone) {
   try {
-    return new Intl.DateTimeFormat("en-GB", {
+    return getDateTimeFormatter("en-GB", {
       hour: "2-digit",
       minute: "2-digit",
       timeZone: timezone,
     }).format(date);
   } catch (error) {
-    return new Intl.DateTimeFormat("en-GB", {
+    return getDateTimeFormatter("en-GB", {
       hour: "2-digit",
       minute: "2-digit",
       timeZone: DEFAULT_LOCATION.timezone,

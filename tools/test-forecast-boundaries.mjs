@@ -12,6 +12,15 @@ const unix = (value) => Date.parse(value) / 1000;
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
 function loadRules() {
+  const formatterConstructions = [];
+  const intl = Object.create(Intl);
+  intl.DateTimeFormat = new Proxy(Intl.DateTimeFormat, {
+    construct(target, args) {
+      const formatter = Reflect.construct(target, args);
+      formatterConstructions.push(args);
+      return formatter;
+    },
+  });
   const element = {
     textContent: "", title: "", value: "0", dataset: {},
     classList: { contains: () => false },
@@ -27,6 +36,7 @@ function loadRules() {
   };
   const context = {
     AbortController, DOMException, URLSearchParams, console, document, window,
+    Intl: intl,
     navigator: {},
     async fetch(url) {
       context.lastRequestUrl = String(url);
@@ -49,6 +59,13 @@ prepareKnmiPointRainForLocation = async () => {};
 globalThis.rules = {
   normalizeForecastCalendarDates,
   formatWeekday,
+  formatClock: (time, timezone) => formatClock(new Date(time * 1000), timezone),
+  getDateParts: (time, timezone) => getDateParts(new Date(time * 1000), timezone),
+  getDeviceDateParts: (time) => getFormattedDateParts(new Date(time * 1000)),
+  getBrowserTimezone,
+  clearFormatterCache: () => dateTimeFormatterCache.clear(),
+  getFormatterCacheSize: () => dateTimeFormatterCache.size,
+  formatterCacheLimit: dateTimeFormatterCacheLimit,
   isPrecipitationDisplayDry,
   getPrecipitationDisplayValue,
   getHourlyWeatherSnapshot: (time) => getHourlyWeatherSnapshot(new Date(time * 1000), weatherData.hourly),
@@ -95,7 +112,7 @@ globalThis.rules = {
     finally { getActiveRainSourceAdjustmentForForecastTime = __originalRainAdjustment; }
   },
 };`, context, { filename: "app.js" });
-  return { rules: context.rules, context };
+  return { rules: context.rules, context, formatterConstructions };
 }
 
 function forecastFixture({ date = "2026-09-05", offset = 9 * hourSeconds, days = 6, currentTime } = {}) {
@@ -135,7 +152,7 @@ function wetIntervalEndingAt(data, time, chance = 100, rain = 2) {
   return index;
 }
 
-const { rules, context } = loadRules();
+const { rules, context, formatterConstructions } = loadRules();
 
 // The last hour belongs to today, despite its accumulation timestamp being tomorrow.
 const midnight = forecastFixture({ currentTime: unix("2026-09-05T23:00:00+09:00") });
@@ -301,4 +318,111 @@ try {
   else process.env.TZ = originalTimezone;
 }
 
-console.log("MyMeteo forecast interval, calendar and DST checks passed.");
+// Reusing formatter objects must never reuse a location's offset or a previously formatted date.
+const formatInstant = unix("2026-09-05T23:30:00Z");
+for (const [timezone, clock, calendarDay, weekday, longWeekday] of [
+  ["Europe/Amsterdam", "01:30", "06", "Sun", "Sunday"],
+  ["America/Los_Angeles", "16:30", "05", "Sat", "Saturday"],
+  ["Asia/Tokyo", "08:30", "06", "Sun", "Sunday"],
+  ["Asia/Kolkata", "05:00", "06", "Sun", "Sunday"],
+  ["Europe/Amsterdam", "01:30", "06", "Sun", "Sunday"],
+]) {
+  rules.setData(forecastFixture(), timezone);
+  assert.equal(rules.formatClock(formatInstant), clock, "selected location controls the cached clock formatter");
+  assert.deepEqual(plain(rules.getDateParts(formatInstant)), {
+    year: "2026", month: "09", day: calendarDay, hour: clock.slice(0, 2), minute: clock.slice(3),
+  });
+  assert.equal(rules.formatWeekday(formatInstant), weekday);
+  assert.equal(rules.formatWeekday(formatInstant, "long"), longWeekday);
+  assert.equal(rules.formatWeekday("2026-09-05"), "Sat", "daily date strings retain UTC calendar formatting");
+}
+
+// Invalid timezone attempts must still use Amsterdam, without retaining invalid configurations.
+rules.setData(forecastFixture(), "Invalid/Timezone");
+const validCacheSize = rules.getFormatterCacheSize();
+for (let repeat = 0; repeat < 3; repeat += 1) {
+  assert.equal(rules.formatClock(formatInstant), "01:30");
+  assert.deepEqual(plain(rules.getDateParts(formatInstant)), {
+    year: "2026", month: "09", day: "06", hour: "01", minute: "30",
+  });
+  assert.equal(rules.formatWeekday(formatInstant), "Sun");
+  assert.equal(rules.formatWeekday(formatInstant, "long"), "Sunday");
+  assert.equal(rules.formatWeekday("2026-09-05"), "Sat");
+}
+assert.equal(rules.getFormatterCacheSize(), validCacheSize, "failed timezone construction is not cached");
+
+// The same cached formatter must resolve both DST offsets from each actual instant.
+rules.setData(forecastFixture(), "Europe/Amsterdam");
+for (const [instant, expectedClock] of [
+  ["2025-10-26T00:15:00Z", "02:15"],
+  ["2025-10-26T01:15:00Z", "02:15"],
+  ["2025-10-26T02:15:00Z", "03:15"],
+  ["2026-03-29T00:15:00Z", "01:15"],
+  ["2026-03-29T01:15:00Z", "03:15"],
+]) {
+  const time = unix(instant);
+  assert.equal(rules.formatClock(time), expectedClock);
+  assert.equal(rules.getDateParts(time).hour, expectedClock.slice(0, 2));
+  assert.equal(rules.formatWeekday(time, "long"), "Sunday");
+}
+
+// Measure the intended work reduction directly, without wall-clock timing thresholds.
+rules.clearFormatterCache();
+const beforeReuse = formatterConstructions.length;
+for (let repeat = 0; repeat < 20; repeat += 1) {
+  const time = formatInstant + repeat * hourSeconds;
+  rules.formatClock(time);
+  rules.getDateParts(time);
+  rules.formatWeekday("2026-09-05", "short");
+  rules.formatWeekday("2026-09-05", "long");
+}
+assert.equal(formatterConstructions.length - beforeReuse, 4,
+  "repeated dates reuse one formatter per locale/options combination");
+assert.equal(rules.getFormatterCacheSize(), 4);
+
+// Visiting many locations must not retain an unbounded set of native Intl objects.
+rules.clearFormatterCache();
+const formatterZones = [
+  "UTC", "Europe/Amsterdam", "Europe/Paris", "Europe/London", "America/New_York",
+  "America/Los_Angeles", "America/Chicago", "America/Anchorage", "Pacific/Honolulu",
+  "Pacific/Kiritimati", "Pacific/Auckland", "Australia/Sydney", "Australia/Adelaide",
+  "Asia/Tokyo", "Asia/Shanghai", "Asia/Kolkata", "Asia/Kathmandu", "Asia/Dubai",
+  "Africa/Johannesburg", "Africa/Cairo",
+];
+assert.ok(formatterZones.length > rules.formatterCacheLimit, "fixture exceeds the bounded cache capacity");
+for (const timezone of formatterZones) {
+  const expected = new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit", minute: "2-digit", timeZone: timezone,
+  }).format(new Date(formatInstant * 1000));
+  assert.equal(rules.formatClock(formatInstant, timezone), expected);
+  assert.ok(rules.getFormatterCacheSize() <= rules.formatterCacheLimit);
+}
+assert.equal(rules.getFormatterCacheSize(), rules.formatterCacheLimit);
+const beforeEvictedZone = formatterConstructions.length;
+assert.equal(rules.formatClock(formatInstant, "UTC"), "23:30");
+assert.equal(formatterConstructions.length, beforeEvictedZone + 1, "evicted configurations are recreated correctly");
+assert.equal(rules.getFormatterCacheSize(), rules.formatterCacheLimit);
+
+// Implicit device timezone discovery and formatting remain live when the system zone changes.
+const browserTimezoneBefore = process.env.TZ;
+const cacheSizeBeforeDeviceChanges = rules.getFormatterCacheSize();
+try {
+  for (const [timezone, day, hour] of [
+    ["Asia/Tokyo", "06", "08"],
+    ["America/Los_Angeles", "05", "16"],
+    ["Asia/Tokyo", "06", "08"],
+  ]) {
+    process.env.TZ = timezone;
+    assert.equal(rules.getBrowserTimezone(), timezone);
+    assert.deepEqual(plain(rules.getDeviceDateParts(formatInstant)), {
+      year: "2026", month: "09", day, hour, minute: "30",
+    });
+    assert.equal(rules.getFormatterCacheSize(), cacheSizeBeforeDeviceChanges,
+      "implicit device timezone formatters are not retained");
+  }
+} finally {
+  if (browserTimezoneBefore === undefined) delete process.env.TZ;
+  else process.env.TZ = browserTimezoneBefore;
+}
+
+console.log("MyMeteo forecast interval, calendar, DST and formatter reuse checks passed.");
