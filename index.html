@@ -4,6 +4,16 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>MyMeteo</title>
+    <link rel="canonical" href="https://mymeteo.nl/" />
+    <script>
+      // Keep existing GitHub Pages bookmarks on the fully configured live app.
+      if (
+        window.location.hostname === "msmeehui.github.io" &&
+        /^\/mymeteo(?:\/|$)/.test(window.location.pathname)
+      ) {
+        window.location.replace(`https://mymeteo.nl/${window.location.search}${window.location.hash}`);
+      }
+    </script>
     <meta name="theme-color" content="#4aa6c9" />
     <meta name="description" content="A simple weather forecast with rain radar, outfit suggestions, and a 5-day outlook." />
     <meta property="og:title" content="MyMeteo" />

@@ -1,27 +1,35 @@
 # MyMeteo
 
-MyMeteo is a small personal weather dashboard with location search, current-location support, live weather, outfit suggestions, a 5-day outlook, and moving rain radar.
+MyMeteo is a compact, mobile-first weather app for checking the weather, seeing when rain is coming, choosing what to wear, and planning the next five days. Search for a place or use your current location.
 
-[Open MyMeteo](https://msmeehui.github.io/mymeteo/)
+[Open MyMeteo](https://mymeteo.nl/)
 
 <p>
-  <img src="assets/mymeteo-raintab.png" alt="MyMeteo Today rain radar view" width="260">
-  <img src="assets/mymeteo-outfit.png" alt="MyMeteo Today outfit suggestion view" width="260">
-  <img src="assets/mymeteo-5daystab.png" alt="MyMeteo 5-day forecast tab" width="260">
+  <img src="assets/mymeteo-raintab.png" alt="MyMeteo Today view with KNMI rain radar, selected-time weather, and precipitation graph" width="260">
+  <img src="assets/mymeteo-outfit.png" alt="MyMeteo Today view with a clothing suggestion for heavy rain and the precipitation graph" width="260">
+  <img src="assets/mymeteo-5daystab.png" alt="MyMeteo five-day forecast with weather icons, high and low temperatures, rain chance, and wind" width="260">
 </p>
 
 ## Features
 
-- Search for a city or place and load the local forecast
-- Use the browser's current-location permission to check the weather nearby
-- View current temperature, conditions, rain, wind, and daily highs/lows
-- Switch between rain radar, outfit suggestions, and a 5-day forecast table
-- Animate rain radar frames with a time slider
-- Install-friendly icons and web app manifest
+- Search for a city or place, or use your current location; your chosen location is remembered for next time
+- Check temperature, weather conditions, daily highs/lows, wind, and rain chance in a compact Today view
+- Scrub the radar timeline to explore upcoming rain, with the map, weather card, and clothing suggestion following the selected time
+- See the timing and intensity of local rain in a precipitation graph coordinated with the radar
+- Switch between the radar map and illustrated clothing suggestions, including scenes for after dark
+- Scan a five-day forecast starting with today, then expand a day for hourly detail
+- Use KNMI radar for the first two hours in the Netherlands, with Buienradar for longer range and fallback, and LibreWXR outside the Netherlands or when Dutch radar is unavailable
+- Add MyMeteo to your phone's home screen for quick access
+
+## Live Site And Hosting
+
+The main app is [mymeteo.nl](https://mymeteo.nl/), hosted on Cloud86. The older [GitHub Pages address](https://msmeehui.github.io/mymeteo/) redirects there, preserving URL parameters and fragments from existing links.
+
+The interface is HTML, CSS, and JavaScript, but KNMI radar also requires the PHP proxy at `api/knmi-wms.php` and its private server configuration. GitHub Pages cannot run PHP, so a standalone static copy cannot provide the full Netherlands radar experience. It can use Buienradar or LibreWXR when those services are available.
 
 ## Open Locally
 
-You can open `index.html` directly in a browser, but serving the folder locally is usually more reliable for browser features and external data requests:
+Serve the project folder with a local web server:
 
 ```sh
 python3 -m http.server 4173 --bind 127.0.0.1
@@ -32,6 +40,8 @@ Then visit:
 ```text
 http://127.0.0.1:4173/
 ```
+
+This is enough to preview the interface and use public forecast and fallback radar services. Python's static server does not execute PHP, so KNMI radar and point rain are unavailable in this setup. To develop with KNMI locally, use a PHP server with cURL and configure the proxy with a KNMI WMS key stored outside the public web root. Use the live site for the fully configured app.
 
 ## Add MyMeteo To Your Phone
 
@@ -61,7 +71,7 @@ No browser API key is required. Netherlands KNMI WMS requests are routed through
 - Location autocomplete: [Open-Meteo Geocoding API](https://open-meteo.com/en/docs/geocoding-api)
 - Current-location names: [OpenStreetMap Nominatim](https://nominatim.openstreetmap.org/)
 - Rain radar animation in the Netherlands: [KNMI](https://www.knmi.nl/) for the first 2 hours, then [Buienradar](https://www.buienradar.nl/) for longer range and fallback
-- Near-term rain in the Netherlands: the Today card follows the displayed KNMI/Buienradar radar image when it can be read at the selected location; KNMI point rain and then Buienradar/Open-Meteo provide fallback and longer-range guidance
+- Near-term rain in the Netherlands: the Today card, precipitation graph, and clothing suggestion follow the displayed KNMI/Buienradar radar image when it can be read at the selected location and time; KNMI point rain and then Buienradar/Open-Meteo provide fallback and longer-range guidance
 - Thunderstorm icon support: Open-Meteo weather codes plus CAPE/lightning-potential signals for cautious heavy-rain storm upgrades
 - Radar frame decoding: [gifuct-js](https://github.com/matt-way/gifuct-js) through [esm.sh](https://esm.sh/)
 - Fallback/outside-Netherlands radar: [LibreWXR](https://librewxr.net/); the Today graph and rain condition use the exact location in the same displayed frames. Unknown local readings withhold the detailed graph instead of drawing hourly model rain as continuous minute-level rainfall.
@@ -89,7 +99,6 @@ For a proxy-only update, upload `api/knmi-wms.php` to the same server path. Keep
 
 - Current-location mode auto-refreshes on open when browser geolocation permission is already granted.
 - The app needs an internet connection because weather, radar, map tiles, and external libraries are loaded from public services.
-- This is a static HTML, CSS, and JavaScript project, so it can be hosted with GitHub Pages.
 
 ## License
 

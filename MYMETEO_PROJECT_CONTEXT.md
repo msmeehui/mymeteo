@@ -1,6 +1,6 @@
 # MyMeteo Project Context
 
-Last updated: 2026-09-05
+Last updated: 2026-09-09
 
 This file is the shared product memory for MyMeteo. Read it before discussing or changing the app in a new Codex chat. It summarizes the decisions, trade-offs, and design philosophy that emerged from the MyMeteo development chats, the app changelog, the README, git history, and the current implementation.
 
@@ -33,6 +33,8 @@ When implementing, keep changes scoped and verify them. For MyMeteo this usually
 ## Current App Shape
 
 MyMeteo is mostly a static HTML/CSS/JavaScript app. It can run locally from the folder or be served by a simple static server, with the production KNMI WMS route handled by a small PHP proxy on Cloud86. It is hosted publicly at mymeteo.nl.
+
+Use `https://mymeteo.nl/` as the main app link in documentation and shared links. The legacy `msmeehui.github.io/mymeteo/` address redirects to the live app, preserving query parameters and fragments. Keep this redirect limited to that GitHub Pages host and app path, so production and local previews continue to open normally. GitHub Pages and local static servers cannot execute the KNMI PHP proxy; fallback radar availability does not make them equivalent to the fully configured live site.
 
 Keeping the site static, no-key-in-browser, and operationally simple has been an important design constraint. API-key providers are possible, but they either expose secrets in the browser or require a backend/proxy. Prefer no-key public data sources unless there is a strong reason to change the architecture.
 
