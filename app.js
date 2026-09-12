@@ -19,7 +19,7 @@ const gifDecoderModuleUrl = "https://esm.sh/gifuct-js@2.1.2?bundle";
 const weatherIconBasePath = "assets/weather-icons-mymeteo/";
 const outfitSceneBackgroundBasePath = "assets/outfit-scenes/v2/backgrounds/";
 const outfitSceneCharacterBasePath = "assets/outfit-scenes/v2/characters/";
-const outfitSceneAssetVersion = "20260826-01";
+const outfitSceneAssetVersion = "20260912-03";
 // Replace these files and bump this version when updating the Easter egg video.
 const easterEggAssetVersion = "20260609-04";
 const easterEggDanceVideo = {
@@ -436,7 +436,7 @@ const outfitScenes = {
     background: "warm-fair.webp",
     nightBackground: "warm-fair-night.webp",
     character: "warm-fair.webp",
-    label: "Warm fair-weather outfit",
+    label: "Warm-weather outfit",
     alt: "Suggested outfit for warm dry weather: light shirt, light linen trousers, casual shoes, and a relaxed walking pose.",
     characterMaxWidth: "70%",
     characterMaxWidthWide: "62%",
@@ -445,8 +445,8 @@ const outfitScenes = {
     background: "mild-cloudy.webp",
     nightBackground: "mild-cloudy-night.webp",
     character: "mild-cloudy.webp",
-    label: "Mild cloudy outfit",
-    alt: "Suggested outfit for mild cloudy weather: long trousers, a light jumper, and a relaxed hands-in-pockets stroll.",
+    label: "Mild-weather outfit",
+    alt: "Suggested outfit for mild dry weather: long trousers, a light jumper, and a relaxed hands-in-pockets stroll.",
     characterMaxWidth: "70%",
     characterMaxWidthWide: "62%",
   },
@@ -586,6 +586,38 @@ const outfitScenes = {
   },
 };
 
+// Dry skies follow the displayed condition, independently of clothing temperature
+// bands and their hysteresis. Scene backgrounds remain the canonical legend/debug art.
+const outfitSkyBackgrounds = {
+  0: { background: "sky-clear.webp", nightBackground: "sky-clear-night.webp" },
+  1: { background: "warm-fair.webp", nightBackground: "warm-fair-night.webp" },
+  2: { background: "cool-dry.webp", nightBackground: "cool-dry-night.webp" },
+  3: { background: "sky-overcast.webp", nightBackground: "sky-overcast-night.webp" },
+};
+
+// A weather family selects its sky while the existing clothing rules retain
+// temperature and precipitation-intensity hysteresis.
+const outfitPrecipitationBackgrounds = [
+  {
+    sceneIds: ["rain", "warm-rain"],
+    weatherCodes: [80, 81],
+    background: "rain-showers-day.webp",
+    nightBackground: "rain-showers-night.webp",
+  },
+  {
+    sceneIds: ["heavy-rain", "warm-heavy-rain"],
+    weatherCodes: [80, 81, 82],
+    background: "heavy-showers-day.webp",
+    nightBackground: "heavy-showers-night.webp",
+  },
+  {
+    sceneIds: ["snow"],
+    weatherCodes: [71, 73, 77],
+    background: "steady-snow-day.webp",
+    nightBackground: "steady-snow-night.webp",
+  },
+];
+
 const outfitDefaultSceneId = "mild-cloudy";
 const outfitSceneIds = Object.keys(outfitScenes);
 function buildOutfitSceneAssetUrl(basePath, fileName) {
@@ -597,8 +629,8 @@ const outfitLegendGroups = [
     title: "Dry Temperature",
     items: [
       { sceneId: "hot-sunny", label: "Hot weather", description: "Shorts, T-shirt, sandals, and water bottle." },
-      { sceneId: "warm-fair", label: "Warm fair", description: "Light shirt, light linen trousers, and casual shoes." },
-      { sceneId: "mild-cloudy", label: "Mild cloudy", description: "Long trousers and a light jumper." },
+      { sceneId: "warm-fair", label: "Warm weather", description: "Light shirt, light linen trousers, and casual shoes." },
+      { sceneId: "mild-cloudy", label: "Mild weather", description: "Long trousers and a light jumper." },
       { sceneId: "cool-dry", label: "Cool dry", description: "Long trousers, sweater, and light jacket." },
       { sceneId: "cold-dry", label: "Cold dry", description: "Warm coat, scarf, long trousers, and closed shoes." },
       { sceneId: "freezing-dry", label: "Freezing dry", description: "Thick coat, scarf, gloves, beanie, and warm shoes." },
@@ -804,6 +836,7 @@ let outfitScenePreloadQueue = [];
 let outfitScenePreloadTimer;
 let outfitScenePreloadIdleHandle;
 const outfitScenePreloadImages = new Map();
+const preloadedOutfitAssetImages = new Map();
 let isEasterEggActive = false;
 let easterEggVideoSrcLoaded = false;
 let shouldCenterMapWhenShown = false;
@@ -3400,7 +3433,18 @@ function getClosestTimeIndex(times, targetTime) {
 }
 
 function getRadarAdjustedSnapshotWeatherCode(snapshot, precipitation) {
-  return getPrecipitationAdjustedWeatherCode(snapshot.weatherCode, precipitation);
+  const sourceCode = Number(snapshot.weatherCode);
+  const adjustedCode = getPrecipitationAdjustedWeatherCode(snapshot.weatherCode, precipitation);
+  // Retain the forecast's shower family only when the selected-time adjustment
+  // still indicates the same precipitation type. Radar dryness, intensity,
+  // rain/snow changes and thunderstorm priority remain authoritative.
+  if ([80, 81, 82].includes(sourceCode)) {
+    return ({ 61: 80, 63: 81, 65: 82 })[adjustedCode] ?? adjustedCode;
+  }
+  if ([85, 86].includes(sourceCode)) {
+    return ({ 71: 85, 73: 85, 75: 86 })[adjustedCode] ?? adjustedCode;
+  }
+  return adjustedCode;
 }
 
 function getSelectedTimePrecipitation(date) {
@@ -3632,7 +3676,7 @@ function updateOutfitModeToggle() {
   }
 }
 
-function renderOutfitScene(snapshot, precipitation, weatherCode) {
+function renderOutfitScene(snapshot = {}, precipitation, weatherCode = snapshot.weatherCode) {
   const overrideSceneId = getOutfitSceneOverrideId();
   const sceneId = overrideSceneId || getOutfitSceneId(snapshot, precipitation, weatherCode);
   const scene = outfitScenes[sceneId] || outfitScenes[outfitDefaultSceneId];
@@ -3644,7 +3688,9 @@ function renderOutfitScene(snapshot, precipitation, weatherCode) {
 
   const timeOverride = getOutfitTimeOverride(overrideSceneId);
   const timeOfDay = timeOverride || getOutfitSceneTimeOfDay(snapshot);
-  const assets = resolveOutfitSceneAssets(scene, timeOfDay);
+  // A forced outfit preview retains its canonical artwork; normal rendering uses
+  // exactly the adjusted condition already chosen for the selected-time icon.
+  const assets = resolveOutfitSceneAssets(scene, timeOfDay, overrideSceneId ? undefined : weatherCode);
   const visualKey = [sceneId, assets.background, assets.character].join("|");
   activeOutfitSceneId = sceneId;
 
@@ -3676,11 +3722,17 @@ function getOutfitSceneTimeOfDay(snapshot = {}) {
   return snapshot.isDaytime === false || snapshot.isDaytime === 0 ? "night" : "day";
 }
 
-function resolveOutfitSceneAssets(scene, timeOfDay) {
+function resolveOutfitSceneAssets(scene, timeOfDay, weatherCode) {
   const isNight = timeOfDay === "night";
+  const code = weatherCode == null ? undefined : Number(weatherCode);
+  const sky = outfitSkyBackgrounds[code];
+  const precipitationBackground = outfitPrecipitationBackgrounds.find((background) =>
+    background.weatherCodes.includes(code)
+    && background.sceneIds.some((sceneId) => outfitScenes[sceneId] === scene));
+  const backgroundScene = sky || precipitationBackground || scene;
 
   return {
-    background: isNight && scene.nightBackground ? scene.nightBackground : scene.background,
+    background: isNight && backgroundScene.nightBackground ? backgroundScene.nightBackground : backgroundScene.background,
     character: isNight && scene.nightCharacter ? scene.nightCharacter : scene.character,
   };
 }
@@ -3941,6 +3993,17 @@ function preloadOutfitSceneImages(sceneId) {
     [outfitSceneCharacterBasePath, scene.character],
     [outfitSceneCharacterBasePath, scene.nightCharacter],
   ];
+  const weatherBackgrounds = outfitPrecipitationBackgrounds.filter((background) =>
+    background.sceneIds.includes(sceneId));
+  if (sceneId === "windy" || outfitTemperatureStates.some((state) => state.id === sceneId)) {
+    weatherBackgrounds.push(...Object.values(outfitSkyBackgrounds));
+  }
+  for (const background of weatherBackgrounds) {
+    assetSpecs.push(
+      [outfitSceneBackgroundBasePath, background.background],
+      [outfitSceneBackgroundBasePath, background.nightBackground],
+    );
+  }
   const seenUrls = new Set();
   const images = assetSpecs.flatMap(([basePath, fileName]) => {
     if (!fileName) {
@@ -3953,9 +4016,13 @@ function preloadOutfitSceneImages(sceneId) {
     }
 
     seenUrls.add(url);
-    const image = new Image();
-    image.decoding = "async";
-    image.src = url;
+    let image = preloadedOutfitAssetImages.get(url);
+    if (!image) {
+      image = new Image();
+      image.decoding = "async";
+      image.src = url;
+      preloadedOutfitAssetImages.set(url, image);
+    }
     return [image];
   });
   outfitScenePreloadImages.set(sceneId, images);
