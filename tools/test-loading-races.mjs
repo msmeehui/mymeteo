@@ -581,7 +581,9 @@ globalThis.__mymeteoLoadingTest = {
     schedulePreload,
   }) {
     if (fetchBuienradar) {
-      fetchBuienradarRadarMode = fetchBuienradar;
+      // Progressive loading consumes the assembled forecast. Raw provider
+      // downloads remain independently exercised by the deadline tests.
+      fetchBuienradarForecast = fetchBuienradar;
     }
     if (fetchKnmi) {
       fetchKnmiRadar = fetchKnmi;
